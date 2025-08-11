@@ -151,10 +151,24 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '©
 const OverrideStore = {
   key: 'manualOverridesV1',
   getAll(){ try{ return JSON.parse(localStorage.getItem(this.key) || '{}'); }catch(_){ return {}; } },
-  saveAll(obj){ localStorage.setItem(this.key, JSON.stringify(obj)); },
+ saveAll(obj){ localStorage.setItem(this.key, JSON.stringify(obj)); },
   get(key){ const all=this.getAll(); return all[key] || null; },
-  set(key, coords){ const all=this.getAll(); all[key]=coords; this.saveAll(all); },
-  del(key){ const all=this.getAll(); if(key in all){ delete all[key]; this.saveAll(all);} },
+  set(key, coords){
+    const all=this.getAll();
+    all[key]=coords;
+    const [a,b]=key.split('|');
+    const revKey=`${b}|${a}`;
+    all[revKey]=coords.map(c=>[c[0],c[1]]).reverse();
+    this.saveAll(all);
+  },
+  del(key){
+    const all=this.getAll();
+    if(key in all) delete all[key];
+    const [a,b]=key.split('|');
+    const revKey=`${b}|${a}`;
+    if(revKey in all) delete all[revKey];
+    this.saveAll(all);
+  },
   export(){ return JSON.stringify(this.getAll(), null, 2); },
   import(json){ const obj=JSON.parse(json); if (typeof obj !== 'object' || Array.isArray(obj)) throw new Error('Invalid JSON'); this.saveAll(obj); }
 };
@@ -684,21 +698,23 @@ const UI = {
       clearNonOverrideDrawings();
       new L.Draw.Polyline(map, drawControl.options.draw.polyline).enable();
     });
-    document.getElementById('btnSaveOverride').addEventListener('click', ()=>{
+document.getElementById('btnSaveOverride').addEventListener('click', ()=>{
       const latlngs=currentDrawnPolylineLatLngs();
       if(!latlngs || latlngs.length<2){ alert('Draw a polyline first.'); return; }
       const coords = latlngs.map(ll => [ll.lat, ll.lng]);
       const key=`${selO.value}|${selD.value}`;
+      const revKey=`${selD.value}|${selO.value}`;
       OverrideStore.set(key, coords);
       showOverridePolyline(coords);
       clearNonOverrideDrawings();
-      alert('Override saved for ' + key);
+      alert('Override saved for ' + key + ' and ' + revKey);
     });
     document.getElementById('btnClearOverride').addEventListener('click', ()=>{
       const key=`${selO.value}|${selD.value}`;
+      const revKey=`${selD.value}|${selO.value}`;
       OverrideStore.del(key);
       showOverridePolyline(null);
-      alert('Override cleared for ' + key);
+      alert('Override cleared for ' + key + ' and ' + revKey);
     });
     document.getElementById('btnExportOverrides').addEventListener('click', ()=>{
       const data = OverrideStore.export();
@@ -775,3 +791,4 @@ Game.init();
 </script>
 </body>
 </html>
+
