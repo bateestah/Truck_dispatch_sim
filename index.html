@@ -689,16 +689,21 @@ const UI = {
       if(!latlngs || latlngs.length<2){ alert('Draw a polyline first.'); return; }
       const coords = latlngs.map(ll => [ll.lat, ll.lng]);
       const key=`${selO.value}|${selD.value}`;
+      const revKey=`${selD.value}|${selO.value}`;
+      const revCoords=[...coords].reverse();
       OverrideStore.set(key, coords);
+      OverrideStore.set(revKey, revCoords);
       showOverridePolyline(coords);
       clearNonOverrideDrawings();
-      alert('Override saved for ' + key);
+      alert('Override saved for ' + key + ' (and reverse)');
     });
     document.getElementById('btnClearOverride').addEventListener('click', ()=>{
       const key=`${selO.value}|${selD.value}`;
+      const revKey=`${selD.value}|${selO.value}`;
       OverrideStore.del(key);
+      OverrideStore.del(revKey);
       showOverridePolyline(null);
-      alert('Override cleared for ' + key);
+      alert('Override cleared for ' + key + ' (and reverse)');
     });
     document.getElementById('btnExportOverrides').addEventListener('click', ()=>{
       const data = OverrideStore.export();
