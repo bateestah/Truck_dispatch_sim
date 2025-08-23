@@ -1,0 +1,703 @@
+import { Colors } from './colors.js';
+import { Driver } from './driver.js';
+import { Router } from './router.js';
+import { fmtETA } from './utils.js';
+import { cityByName, CityGroups } from './data/cities.js';
+import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
+import { OverrideStore } from './store.js';
+import { initLoadBoard, openLoadBoard } from './load_board.js';
+import { map } from './map.js';
+
+/* ---------- UI ---------- */
+export const UI = {
+  _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
+  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } },
+  init(){
+    document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
+    ['panelCompany','panelMarket'].forEach(id=>makeDraggable(document.getElementById(id)));
+    // Override city selects
+    fillCitySelectGrouped(document.getElementById('ovrOrigin'));
+    fillCitySelectGrouped(document.getElementById('ovrDest'));
+    document.getElementById('ovrOrigin').value='Chicago, IL'; document.getElementById('ovrDest').value='New York, NY';
+
+    // Load Board
+    initLoadBoard();
+    window.UI.openLoadBoard = openLoadBoard;
+
+    this.refreshAll();
+  },
+  initOverridesUI(){
+    const selO=document.getElementById('ovrOrigin'), selD=document.getElementById('ovrDest');
+    const btnToggle=document.getElementById('btnToggleCompleted');
+    const refreshGhost=()=>{ const key=`${selO.value}|${selD.value}`; showOverridePolyline(OverrideStore.get(key)); };
+    const updateToggle=()=>{
+      const has=Object.keys(OverrideStore.getAll()).length>0;
+      btnToggle.style.display=has?'inline-block':'none';
+      if(!has){
+        setShowCompletedRoutes(false);
+        btnToggle.textContent='Show Completed';
+        refreshCompletedRoutes();
+      } else {
+        btnToggle.textContent=showCompletedRoutes?'Hide Completed':'Show Completed';
+      }
+    };
+    btnToggle.addEventListener('click', ()=>{
+      setShowCompletedRoutes(!showCompletedRoutes);
+      btnToggle.textContent=showCompletedRoutes?'Hide Completed':'Show Completed';
+      refreshCompletedRoutes();
+    });
+    selO.addEventListener('change', refreshGhost);
+    selD.addEventListener('change', refreshGhost);
+    document.getElementById('btnStartDraw').addEventListener('click', ()=>{
+      clearNonOverrideDrawings();
+      new L.Draw.Polyline(map, drawControl.options.draw.polyline).enable();
+    });
+    document.getElementById('btnSaveOverride').addEventListener('click', ()=>{
+      const latlngs=currentDrawnPolylineLatLngs();
+      if(!latlngs || latlngs.length<2){ alert('Draw a polyline first.'); return; }
+      const coords = latlngs.map(ll => [ll.lat, ll.lng]);
+      const key=`${selO.value}|${selD.value}`;
+      const revKey=`${selD.value}|${selO.value}`;
+      OverrideStore.set(key, coords);
+      showOverridePolyline(coords);
+      clearNonOverrideDrawings();
+      alert('Override saved for ' + key + ' and ' + revKey);
+      updateToggle();
+      refreshCompletedRoutes();
+    });
+    document.getElementById('btnClearOverride').addEventListener('click', ()=>{
+      const key=`${selO.value}|${selD.value}`;
+      const revKey=`${selD.value}|${selO.value}`;
+      OverrideStore.del(key);
+      showOverridePolyline(null);
+      alert('Override cleared for ' + key + ' and ' + revKey);
+      updateToggle();
+      refreshCompletedRoutes();
+    });
+    document.getElementById('btnExportOverrides').addEventListener('click', ()=>{
+      const data = OverrideStore.export();
+      const blob = new Blob([data], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='manual_overrides.json'; a.click();
+      URL.revokeObjectURL(url);
+    });
+    document.getElementById('fileImport').addEventListener('change', (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      const reader = new FileReader(); reader.onload = () => {
+        try {
+          OverrideStore.import(reader.result);
+          alert('Overrides imported.');
+          refreshGhost();
+          setShowCompletedRoutes(true);
+          updateToggle();
+          refreshCompletedRoutes();
+        }
+        catch(err){ alert('Import failed: ' + err.message); }
+      }; reader.readAsText(file); e.target.value='';
+    });
+    refreshGhost();
+    updateToggle();
+  },
+  refreshAll(){ this.refreshCompany(); this.refreshDispatch(); this.updateLegend(); },
+  
+  refreshCompany(){
+    const panel = document.getElementById('panelCompany');
+    if (!panel) return;
+    const content = panel.querySelector('.content');
+    if (!content) return;
+
+    if (!UI._companyWired){
+      const trucks = Game.equipment.filter(e=>e.type==='truck').length;
+      const props = Game.properties.length;
+      const overhead = trucks*Game.overheadPerTruck + props*Game.overheadPerProperty;
+
+      content.innerHTML = `
+        <div class="grid cols-2 company-grid">
+          <div>
+            <div class="stat">
+              <div class="small">Bank</div>
+              <div id="statBank">$${Game.bank.toLocaleString()}</div>
+            </div>
+            <div class="stat">
+              <div class="small">Daily Overhead</div>
+              <div id="statOverhead">$${overhead.toLocaleString()} / day</div>
+            </div>
+
+            <div class="row" style="margin-top:8px; gap:8px;">
+              <button id="btnAddDriver" class="btn">Add Driver</button>
+              <input id="txtDriverSearch" type="text" placeholder="Search drivers..." />
+            </div>
+
+            <div id="driversList" class="drivers-list"></div>
+            
+          </div>
+          <div>
+            <div id="driverProfile" class="driver-profile">
+              <div class="hint">Select a driver to view their profile.</div>
+            </div>
+          </div>
+        </div>
+
+        <dialog id="dlgAddDriver" class="modal">
+          <form method="dialog" class="form">
+            <h3>New Driver</h3>
+            <div class="grid cols-2">
+              <label>First Name<input name="firstName" required/></label>
+              <label>Last Name<input name="lastName" required/></label>
+            </div>
+            <label>Home City
+              <input name="cityName" list="citiesList" placeholder="e.g., Chicago, IL" required/>
+            </label>
+            <div class="grid cols-3">
+              <label>Truck Make<input name="truckMake"/></label>
+              <label>Model<input name="truckModel"/></label>
+              <label>#<input name="truckNumber"/></label>
+            </div>
+            <menu style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+              <button value="cancel" class="btn">Cancel</button>
+              <button id="btnCreateDriver" value="default" class="btn">Create</button>
+            </menu>
+          </form>
+        </dialog>
+        <datalist id="citiesList"></datalist>
+      `;
+
+      const list = content.querySelector('#citiesList');
+      if(list && CityGroups){
+        const names = (CityGroups||[]).flatMap(g=>g.items).slice(0, 500).map(c=>c.name);
+        names.forEach(n => { const o=document.createElement('option'); o.value=n; list.appendChild(o); });
+      }
+
+      const dlg = content.querySelector('#dlgAddDriver');
+      const btnAdd = content.querySelector('#btnAddDriver');
+      if (btnAdd && dlg){
+        btnAdd.addEventListener('click', ()=>dlg.showModal());
+        dlg.querySelector('#btnCreateDriver').addEventListener('click', (ev)=>{
+  ev.preventDefault();
+  const form = dlg.querySelector('form');
+  const data = Object.fromEntries(new FormData(form).entries());
+  try {
+    const first=(data.firstName||'').trim();
+    const last=(data.lastName||'').trim();
+    const fullName=(first+' '+last).trim();
+    const city = cityByName((data.cityName||'').trim());
+    Game.addDriver(fullName, city);
+    const d = Game.drivers[Game.drivers.length-1];
+    if (d){ d.truckMake=(data.truckMake||'').trim(); d.truckModel=(data.truckModel||'').trim(); d.truckNumber=(data.truckNumber||'').trim(); d.cityName=city.name; }
+    dlg.close();
+    UI._companyNeedsListRefresh = true;
+    UI.refreshCompany();
+  } catch(err){ alert(err.message || err); }
+});
+      }
+
+      const listEl = content.querySelector('#driversList');
+      if (listEl){
+        listEl.addEventListener('click', (e)=>{
+          const item = e.target.closest('.driver-item');
+          if(!item) return;
+          const id = item.getAttribute('data-id');
+          const d = Game.drivers.find(x => String(x.id)===String(id));
+          if (d){
+            UI._showDriverProfile(d);
+            listEl.querySelectorAll('.driver-item').forEach(x=>x.classList.remove('active'));
+            item.classList.add('active');
+            UI._companySelectedId = d.id;
+          }
+        });
+      }
+
+      const search = content.querySelector('#txtDriverSearch');
+      if (search){
+        search.addEventListener('input', (e)=>{
+          const q = (e.target.value||'').toLowerCase();
+          for (const el of listEl.querySelectorAll('.driver-item')) {
+            const name = el.querySelector('.driver-name')?.textContent.toLowerCase() || '';
+            el.style.display = name.includes(q) ? '' : 'none';
+          }
+        });
+      }
+
+      UI._companyNeedsListRefresh = true;
+      UI._companyWired = true; try{ UI._companyNeedsListRefresh=true; UI._companyRenderDriverList(); }catch(e){}
+    }
+
+    const trucks=Game.equipment.filter(e=>e.type==='truck').length, props=Game.properties.length;
+    const overhead=trucks*Game.overheadPerTruck + props*Game.overheadPerProperty;
+    const bankEl = document.getElementById('statBank'); if (bankEl) bankEl.textContent = '$' + Game.bank.toLocaleString();
+    const ohEl = document.getElementById('statOverhead'); if (ohEl) ohEl.textContent = '$' + overhead.toLocaleString() + ' / day';
+
+    if (UI._companyNeedsListRefresh){ UI._companyRenderDriverList(); UI._companyNeedsListRefresh=false; } else { UI._companyRenderDriverList(); }
+},
+
+  updateCompanyLive(){
+    const el=document.getElementById('statBank'); if (el) el.textContent='$'+Game.bank.toLocaleString();
+    try{ const list=document.getElementById('driversList'); if(list){ for(const item of list.querySelectorAll('.driver-item')){ const id=item.getAttribute('data-id'); const d=Game.drivers.find(x=>String(x.id)===String(id)); if(d){ const sub=item.querySelector('.driver-sub'); if(sub){ sub.textContent = d.status + ' • ' + (d.cityName || (d.lat.toFixed(2)+', '+d.lng.toFixed(2))); } } } } }catch(e){}
+    try{ const sid=UI._companySelectedId; if(sid){ const d=Game.drivers.find(x=>String(x.id)===String(sid)); if(d && document.getElementById('hosChart')) UI.
+  // Provide HOS segments for charting; prefer live driver data, fallback to a tiny stub.
+  UI._getHosSegments = function(d){
+    if (d && Array.isArray(d.hosSegments) && d.hosSegments.length) return d.hosSegments;
+    try{
+      const now = Game.getSimNow();
+      const hr = now.getHours() + now.getMinutes()/60;
+      const base = (d && d.currentLoadId) ? 'D' : ((d && d.status==='SB') ? 'SB' : 'OFF');
+      const start = Math.max(0, hr-1);
+      return [{start:0, end:start, status:'SB'}, {start, end:hr, status:base}];
+    }catch(e){ return []; }
+  };
+_drawHosChart(d); } }catch(e){}
+  },
+
+  _companyRenderDriverList(){
+    const listEl = document.getElementById('driversList');
+    if (!listEl) return;
+    const activeId = UI._companySelectedId;
+    const search = document.getElementById('txtDriverSearch');
+    const query = (search && search.value || '').toLowerCase();
+    const html = Game.drivers.map(d => `
+      <div class="driver-item${activeId && String(activeId)===String(d.id)?' active':''}" data-id="${d.id}">
+        <div class="driver-name"><span class="dot" style="background:${d.color};"></span>${d.firstName} ${d.lastName}</div>
+        <div class="driver-sub">${d.status} • ${d.cityName || (d.lat.toFixed(2)+', '+d.lng.toFixed(2))}</div>
+      </div>
+    `).join('');
+    listEl.innerHTML = html || '<div class="hint">No drivers yet.</div>';
+    // Auto-select first driver if none selected
+    if (!UI._companySelectedId && Game.drivers.length){
+      const firstVisible = listEl.querySelector('.driver-item');
+      if (firstVisible){
+        const id = firstVisible.getAttribute('data-id');
+        const d = Game.drivers.find(x=>String(x.id)===String(id));
+        if (d){ UI._companySelectedId = d.id; UI._showDriverProfile(d); firstVisible.classList.add('active'); }
+      }
+    }
+
+    if (query){
+      for (const el of listEl.querySelectorAll('.driver-item')) {
+        const name = el.querySelector('.driver-name')?.textContent.toLowerCase() || '';
+        el.style.display = name.includes(query) ? '' : 'none';
+      }
+    }
+  },
+
+  _showDriverProfile(d){
+    const wrap = document.querySelector('#panelCompany #driverProfile');
+    if (!wrap) return;
+    if (!d){ wrap.innerHTML='<div class="hint">Select a driver.</div>'; return; }
+    wrap.innerHTML = `
+      <div class="profile-card">
+        <div class="profile-header">
+          <span class="dot" style="background:${d.color};"></span>
+          <div>
+            <div class="profile-name">${d.firstName} ${d.lastName}</div>
+            <div class="profile-sub">${d.status} • ${d.cityName || (d.lat.toFixed(2)+', '+d.lng.toFixed(2))}</div>
+          </div>
+        </div>
+        <div class="grid cols-2" style="margin-top:8px;">
+          <div class="stat">
+            <div class="small">Equipment</div>
+            <div>${d.truckMake||'—'} ${d.truckModel||''} <span class="pill">${d.truckNumber||''}</span></div>
+          </div>
+          <div class="stat">
+            <div class="small">Location</div>
+            <div>${d.cityName || (d.lat.toFixed(2)+', '+d.lng.toFixed(2))}</div>
+          </div>
+        </div>
+        <div class="stat" style="margin-top:8px;">
+          <div class="small">HOS (today, 24h log)</div>
+          <canvas id="hosChart" width="340" height="160"></canvas>
+        </div>
+      </div>
+    `;
+    try { UI._drawHosChart(d); } catch (e) {}
+  },
+
+  
+  
+  _drawHosChart(d){
+    const canvas = document.getElementById('hosChart');
+    if (!canvas) return;
+    // Ensure the canvas has dimensions
+    if (!canvas.width || !canvas.height){ canvas.width = canvas.clientWidth || 520; canvas.height = 140; }
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // Layout
+    const padding = { l: 40, r: 10, t: 10, b: 24 };
+    const W = canvas.width - padding.l - padding.r;
+    const H = canvas.height - padding.t - padding.b;
+
+    // Rows and mapping
+    const rows = ['OFF','SB','D','ON']; // Off Duty, Sleeper Berth, Driving, On Duty
+    const rowH = H / rows.length;
+
+    // Axes / grid
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = '10px sans-serif';
+    for (let hr=0; hr<=24; hr+=1){
+  const x = padding.l + (hr/24)*W;
+  // grid line
+  ctx.beginPath();
+  ctx.moveTo(x, padding.t);
+  ctx.lineTo(x, padding.t + H);
+  ctx.stroke();
+  // labels
+  const isMidnight = (hr === 0 || hr === 24);
+  const isNoon = (hr === 12);
+  const oldFont = ctx.font;
+  if (isMidnight || isNoon) {
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(isNoon ? 'noon' : 'midnight', x, padding.t + H + 6);
+    ctx.font = oldFont;
+  } else {
+    ctx.fillStyle = '#444';
+    ctx.fillText(String(hr).padStart(2,'0'), x, padding.t + H + 6);
+  }
+}
+    // Row labels + baselines
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#666';
+    rows.forEach((name, i)=>{
+      const y = padding.t + i*rowH + rowH/2;
+      ctx.fillText(name, padding.l - 8, y);
+      ctx.beginPath();
+      ctx.moveTo(padding.l, y);
+      ctx.lineTo(padding.l + W, y);
+      ctx.stroke();
+    });
+
+    // Data
+    const segs = (d.getHosSegments24 ? d.getHosSegments24(Game.getSimNow().getTime()) : []);
+    if (!segs.length){
+      ctx.fillStyle = '#888';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('No HOS yet', padding.l, padding.t);
+      ctx.restore();
+      return;
+    }
+
+    // Draw segments as thick horizontal bars
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#2a7';
+    segs.forEach(seg=>{
+      const idx = rows.indexOf(seg.status || seg.s || 'OFF');
+      if (idx < 0) return;
+      const y = padding.t + idx*rowH + rowH/2;
+      const x1 = padding.l + (Math.max(0, Math.min(24, seg.start))/24)*W;
+      const x2 = padding.l + (Math.max(0, Math.min(24, seg.end))/24)*W;
+      ctx.beginPath();
+      ctx.moveTo(x1, y);
+      ctx.lineTo(x2, y);
+      ctx.stroke();
+    });
+
+    ctx.restore();
+  },
+
+  refreshDispatch(){
+    const tbody=document.querySelector('#tblLoads tbody'); if(!tbody) return;
+    tbody.innerHTML='';
+    for (const l of Game.loads.slice().reverse()){
+      const etaLeft=Math.max(0, l.etaMs - (Game.getSimNow().getTime()-l.startTime));
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td><span class="dot" style="background:${l.color}; width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px;"></span>${l.driverName}</td>
+                    <td>${l.originName} → ${l.destName}</td>
+                    <td>${l.status==='En Route' ? fmtETA(etaLeft) : '—'}</td>
+                    <td>${l.miles}</td>
+                    <td>${l.status}${l.status==='Delivered' ? ` (+$${l.profit.toLocaleString()})` : ''}</td>`;
+      tbody.appendChild(tr);
+    }
+    document.getElementById('statBank').textContent='$'+Game.bank.toLocaleString();
+  },
+  refreshTablesLive(){ try{ UI.updateCompanyLive && UI.updateCompanyLive(); }catch(e){} try{ this.refreshDispatch(); }catch(e){} },
+  updateLegend(){
+    const el=document.getElementById('legend'); el.innerHTML='<div class="note">Drivers</div>';
+    for (const d of Game.drivers){ const span=document.createElement('span'); span.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}`; el.appendChild(span); }
+  }
+};
+
+function makeDraggable(panel){
+  if(!panel) return;
+  const header=panel.querySelector('header');
+  let isDown=false, startX=0, startY=0;
+  const onMove=e=>{
+    if(!isDown) return;
+    panel.style.left=(e.clientX-startX)+"px";
+    panel.style.top=(e.clientY-startY)+"px";
+  };
+  const onUp=()=>{
+    isDown=false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  header.addEventListener('mousedown', e=>{
+    isDown=true;
+    startX=e.clientX-panel.offsetLeft;
+    startY=e.clientY-panel.offsetTop;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+export const Game = {
+  bank: 250000,
+  overheadPerTruck: 50,
+  overheadPerProperty: 200,
+  drivers: [],
+  equipment: [],
+  properties: [],
+  loads: [],
+  // --- Simulation Time (starts Jan 1, 2020) ---
+  simEpoch: new Date(2020, 0, 1, 0, 0, 0), // Jan 1, 2020
+  _simElapsedMs: 0,
+  _realLast: performance.now(),
+  speed: 2,          // default: 2×
+  paused: false,
+  _realWhenPaused: null,
+  getSimNow(){ return new Date(this.simEpoch.getTime() + this._simElapsedMs); },
+  pause(){ this.paused = true; },
+  resume(mult=1){
+    if(this.paused){
+      const pausedDur = performance.now() - (this._realWhenPaused||performance.now());
+      this.realStart += pausedDur;
+      this.paused = false;
+    }
+    this.speed = mult;
+  },
+
+  tickMs: 1000,
+  init() {
+    this.addDriver('Alice', cityByName('Chicago, IL'));
+    this.addDriver('Ben',   cityByName('Dallas, TX'));
+    this.addDriver('Cara',  cityByName('Atlanta, GA'));
+    UI.refreshAll();
+    if (this.loop) clearInterval(this.loop); this.loop = setInterval(()=>this.update(), this.tickMs);
+    if (this.overheadLoop) clearInterval(this.overheadLoop); this.overheadLoop = setInterval(()=>this.applyOverhead(), 60000);
+    UI.initOverridesUI();
+    UI._wireTimeButtons();
+    UI.updateTimeHUD();
+    if (this._hudLoop) clearInterval(this._hudLoop); this._hudLoop = setInterval(()=>UI.updateTimeHUD(), 500);
+  },
+  addDriver(name, city) {
+    const color = Colors[this.drivers.length % Colors.length];
+    const driver = new Driver(name, city.lat, city.lng, color);
+    this.drivers.push(driver);
+    driver.render();
+    UI.updateLegend();
+  },
+  buyEquipment(type, model, cost) {
+    if (this.bank < cost) { alert('Insufficient funds.'); return; }
+    this.bank -= cost;
+    this.equipment.push({type, model, owner:'You'});
+    UI.refreshCompany();
+  },
+  buyProperty(name, city, cost) {
+    if (this.bank < cost) { alert('Insufficient funds.'); return; }
+    this.bank -= cost;
+    this.properties.push({name, city});
+    UI.refreshCompany();
+  },
+
+  // ----- Load Board integration: assign + deadhead -> main leg
+  async assignLoad(driverId, load) {
+    const d = this.drivers.find(x => String(x.id) === String(driverId));
+    if (!d) { alert('Driver not found.'); return; }
+    if (d.status !== 'Idle') { alert('Driver is busy.'); return; }
+
+    const originName = `${load.origin.city}, ${load.origin.state}`;
+    const destName   = `${load.dest.city}, ${load.dest.state}`;
+    const origin = { name: originName, lat: load.origin.lat, lng: load.origin.lng };
+    const dest   = { name: destName,   lat: load.dest.lat,   lng: load.dest.lng };
+
+    const mph = 58, fuelPerMile = 0.75, wagePerMile = 0.60;
+
+    const fromPos = { name: 'Driver', lat: d.lat, lng: d.lng };
+    const toPickup = origin;
+    const deadheadRoute = await Router.route(fromPos, toPickup);
+    const deadheadMiles = Math.round(deadheadRoute.distanceMiles);
+    const needsDeadhead = deadheadMiles > 5;
+
+    const mainRoute = await Router.route(origin, dest);
+    const mainMiles = Math.round(mainRoute.distanceMiles);
+    const etaMainMs = (mainMiles / Math.max(20, Math.min(80, mph))) * 3600 * 1000;
+    const payout = load.payout ?? (mainMiles * (load.rpm || 2.5));
+    const cost = mainMiles * (fuelPerMile + wagePerMile);
+    const profit = Math.round(payout - cost);
+
+    const makeLoadRow = (overrides) => ({
+      id: crypto.randomUUID(),
+      driverId: d.id, driverName: d.name, color: d.color,
+      ...overrides
+    });
+
+    const _legal = d.isDrivingLegal(Game.getSimNow().getTime()); if (!_legal.ok){ alert(_legal.reason); return; }
+    if (needsDeadhead) {
+      const etaDHMs = (deadheadMiles / Math.max(20, Math.min(80, mph))) * 3600 * 1000;
+      const deadheadLoad = makeLoadRow({
+        kind: 'Deadhead',
+        originName: 'Current Position', destName: originName,
+        start: deadheadRoute.path[0], end: deadheadRoute.path[deadheadRoute.path.length-1],
+        miles: deadheadMiles, startTime: Game.getSimNow().getTime(),
+        etaMs: etaDHMs, status: 'En Route', profit: 0
+      });
+      this.loads.push(deadheadLoad);
+      d._pendingMainLeg = { route: mainRoute, mainMiles, etaMainMs, profit, originName, destName };
+      d.startTripPolyline(deadheadRoute.path, deadheadLoad.id);
+    } else {
+      const mainLoad = makeLoadRow({
+        kind: 'Main',
+        originName, destName,
+        start: mainRoute.path[0], end: mainRoute.path[mainRoute.path.length-1],
+        miles: mainMiles, startTime: Game.getSimNow().getTime(),
+        etaMs: etaMainMs, status: 'En Route', profit
+      });
+      this.loads.push(mainLoad);
+      d.startTripPolyline(mainRoute.path, mainLoad.id);
+    }
+
+    // toast/UI refresh handled by board; we still refresh tables
+    UI.refreshDispatch();
+  },
+
+  completeLoad(load) {
+    this.bank += load.profit;
+    load.status = 'Delivered';
+    UI.refreshDispatch();
+    UI.refreshCompany();
+  },
+
+  update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
+    for (const d of this.drivers) {
+      try{ d.syncHosLog(now); }catch(e){}
+      if (d.status === 'On Trip') {
+        const ld = this.loads.find(l => l.id === d.currentLoadId);
+        if (!ld) continue;
+        const t = (now - ld.startTime) / ld.etaMs;
+        if (t >= 1) {
+          d.finishTrip(ld.end);
+          if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
+            const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
+            const mainLoad = {
+              id: crypto.randomUUID(),
+              driverId: d.id, driverName: d.name, color: d.color,
+              kind: 'Main',
+              originName, destName,
+              start: route.path[0], end: route.path[route.path.length-1],
+              miles: mainMiles, startTime: Game.getSimNow().getTime(),
+              etaMs: etaMainMs, status: 'En Route', profit
+            };
+            this.loads.push(mainLoad);
+            d._pendingMainLeg = null;
+            d.startTripPolyline(route.path, mainLoad.id);
+            UI.refreshDispatch();
+          } else {
+            this.completeLoad(ld);
+          }
+        } else {
+          d.tick(now, ld);
+        }
+      }
+    }
+    UI.refreshTablesLive();
+  },
+
+  applyOverhead() {
+    const trucks = this.equipment.filter(e => e.type === 'truck').length;
+    const props = this.properties.length;
+    const burn = trucks * this.overheadPerTruck + props * this.overheadPerProperty;
+    if (burn > 0) { this.bank -= burn; UI.refreshCompany(); }
+  }
+  ,jump(ms){
+    this._simElapsedMs += Math.max(0, ms|0);
+    const now = this.getSimNow().getTime();
+    try { for (const d of this.drivers) { d.syncHosLog(now); d.applyHosTick(now); } } catch(e){}
+    try {
+      UI.refreshTablesLive();
+      const sid = UI._companySelectedId;
+      if (sid) { const d = this.drivers.find(x=>String(x.id)===String(sid)); if (d) UI._drawHosChart(d); }
+    } catch(e){}
+  }
+
+};
+
+export function fillCitySelectGrouped(sel){
+  sel.innerHTML='';
+  for(const g of CityGroups){
+    const og=document.createElement('optgroup'); og.label=g.state;
+    for(const c of g.items){
+      const o=document.createElement('option'); o.value=c.name; o.textContent=c.name;
+      og.appendChild(o);
+    }
+    sel.appendChild(og);
+  }
+}
+
+
+// ---- Time HUD helpers ----
+UI._wireTimeButtons = function(){
+  const byId=id=>document.getElementById(id);
+  const setActive=(id)=>{
+    document.querySelectorAll('.time-controls button').forEach(b=>b.classList.remove('active'));
+    const el=byId(id); if(el) el.classList.add('active');
+  };
+  const btnPause = byId('btnPause'), btn1=byId('btn1x'), btn2=byId('btn2x'), btn4=byId('btn4x');
+  if(btnPause){ btnPause.onclick=()=>{ Game.pause(); setActive('btnPause'); UI.updateTimeHUD(); }; }
+  if(btn1){ btn1.onclick=()=>{ Game.resume(1); setActive('btn1x'); UI.updateTimeHUD(); }; }
+  if(btn2){ btn2.onclick=()=>{ Game.resume(2); setActive('btn2x'); UI.updateTimeHUD(); }; }
+  if(btn4){ btn4.onclick=()=>{ Game.resume(4); setActive('btn4x'); UI.updateTimeHUD(); }; }
+  setActive('btn2x'); // default
+};
+UI.updateTimeHUD = function(){
+  try{ UI._ensurePlus15Button(); }catch(e){}
+  const hud = document.getElementById('timeHud');
+  if(!hud) return;
+  const now = Game.getSimNow();
+  const clk = document.getElementById('clock24');
+  if (clk){
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const ss = String(now.getSeconds()).padStart(2,'0');
+    clk.textContent = `${hh}:${mm}:${ss}`;
+  }
+  const cal = document.getElementById('miniCal');
+  if (cal){
+    const key = `${now.getFullYear()}-${now.getMonth()}`;
+    if (UI._calKey !== key){
+      UI._calKey = key;
+      UI._renderMiniCalendar(now);
+    } else {
+      const prev = cal.querySelector('.mc-cell .mc-dot');
+      if (prev) prev.remove();
+      const dayCell = cal.querySelector(`.mc-cell[data-day="${now.getDate()}"]`);
+      if (dayCell){
+        const dot = document.createElement('span');
+        dot.className='mc-dot';
+        dayCell.appendChild(dot);
+      }
+    }
+  }
+};
+UI._renderMiniCalendar = function(now){
+  const cal = document.getElementById('miniCal'); if(!cal) return;
+  const y = now.getFullYear(), m = now.getMonth();
+  const first = new Date(y, m, 1);
+  const last = new Date(y, m+1, 0);
+  const startDow = first.getDay(); const days = last.getDate();
+  const monthName = first.toLocaleString(undefined, { month:'long' });
+  const head = `<div class="mc-head">${monthName} ${y}</div>`;
+  const dows = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const gridHeader = `<div class="mc-grid">` + dows.map(d=>`<div class="mc-dow">${d}</div>`).join('') + `</div>`;
+  const cells = []; for(let i=0;i<startDow;i++) cells.push('<div class="mc-cell empty"></div>');
+  for(let d=1; d<=days; d++){ cells.push(`<div class="mc-cell" data-day="${d}"><span class="mc-num">${d}</span></div>`); }
+  while((cells.length % 7)!==0) cells.push('<div class="mc-cell empty"></div>');
+  const gridDays = `<div class="mc-grid">${cells.join('')}</div>`;
+  cal.innerHTML = head + gridHeader + gridDays;
+  const cur = cal.querySelector(`.mc-cell[data-day="${now.getDate()}"]`);
+  if (cur){ const dot=document.createElement('span'); dot.className='mc-dot'; cur.appendChild(dot); }
+};
