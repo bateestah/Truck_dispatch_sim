@@ -233,8 +233,9 @@ function renderLoads(listEl, loads, mode='available'){
 
     if(mode==='available'){
       card.querySelector('.lb-book').addEventListener('click', ()=>{
-        if(!hasDrivers){ alert('No drivers available to assign.'); return; }
-        const sel=card.querySelector('.lb-driver'); const driverId=sel?.value;
+        const sel=card.querySelector('.lb-driver');
+        if(!sel || sel.options.length===0){ alert('No drivers available to assign.'); return; }
+        const driverId=sel.value;
         if(!driverId){ alert('Select a driver'); return; }
         bookLoad(L, driverId);
         // Optimistically remove this driver from ALL dropdowns
