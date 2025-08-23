@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Trucking Dispatch Simulator — Load Board</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+  <link rel="stylesheet" href="./assets/css/styles.css"/>
+</head>
+<body>
+  <div id="app">
+    <div id="map"></div>
+
+    <div class="legend" id="legend"></div>
+
+    <!-- Draw & Save controls -->
+    <div class="drawbar">
+      <span class="lbl">Manual Route for</span>
+      <select id="ovrOrigin"></select>
+      <span>→</span>
+      <select id="ovrDest"></select>
+      <button id="btnStartDraw" class="btn">Draw Polyline</button>
+      <button id="btnSaveOverride" class="btn">Save Override</button>
+      <button id="btnClearOverride" class="btn">Clear Override</button>
+      <button id="btnExportOverrides" class="btn">Export</button>
+      <label class="btn" for="fileImport">Import</label>
+      <input id="fileImport" class="file-input" type="file" accept="application/json"/>
+      <button id="btnToggleCompleted" class="btn" style="display:none;">Show Completed</button>
+      <span class="badge">Store: local</span>
+    </div>
+
+    
+    <!-- Company Panel -->
+    <div class="panel" id="panelCompany">
+      <header>
+        <div>Company</div>
+        <div class="close-x" data-close="#panelCompany">✕</div>
+      </header>
+      <div class="content">
+        <!-- company content is rendered dynamically in UI.refreshCompany() -->
+      </div>
+    </div>
+
+
+    <!-- Market Panel -->
+    <div class="panel" id="panelMarket">
+      <header>
+        <div>Market</div>
+        <div class="close-x" data-close="#panelMarket">✕</div>
+      </header>
+      <div class="content">
+        <h3>Buy Equipment</h3>
+        <div class="grid cols-2">
+          <div class="stat"><div class="small">Truck – Day Cab</div><div class="row"><div class="pill">$120,000</div><button class="btn" onclick="Game.buyEquipment('truck','Day Cab',120000)">Buy</button></div></div>
+          <div class="stat"><div class="small">Truck – Sleeper</div><div class="row"><div class="pill">$165,000</div><button class="btn" onclick="Game.buyEquipment('truck','Sleeper',165000)">Buy</button></div></div>
+          <div class="stat"><div class="small">Trailer – Dry Van</div><div class="row"><div class="pill">$42,000</div><button class="btn" onclick="Game.buyEquipment('trailer','Dry Van',42000)">Buy</button></div></div>
+          <div class="stat"><div class="small">Trailer – Reefer</div><div class="row"><div class="pill">$78,000</div><button class="btn" onclick="Game.buyEquipment('trailer','Reefer',78000)">Buy</button></div></div>
+        </div>
+
+        <h3 style="margin-top:14px;">Buy Property</h3>
+        <div class="grid cols-2">
+          <div class="stat"><div class="small">Small Yard – Dallas</div><div class="row"><div class="pill">$350,000</div><button class="btn" onclick="Game.buyProperty('Dallas Yard','Dallas, TX',350000)">Buy</button></div></div>
+          <div class="stat"><div class="small">Warehouse – Chicago</div><div class="row"><div class="pill">$1,200,000</div><button class="btn" onclick="Game.buyProperty('Chicago Warehouse','Chicago, IL',1200000)">Buy</button></div></div>
+        </div>
+
+        <div class="hint">Overhead increases per owned truck ($50/day) and per property ($200/day).</div>
+      </div>
+    </div>
+
+    
+    <!-- Time HUD: clock + month calendar + time controls -->
+    <div id="timeHud" class="time-hud">
+      <div class="time-row">
+        <div id="clock24" class="clock24">00:00:00</div>
+        <div class="time-controls">
+          <button id="btnPause" title="Pause">⏸</button>
+          <button id="btn1x"   title="Play 1×">▶︎1×</button>
+          <button id="btn2x"   title="Fast 2×">▶︎▶︎2×</button>
+          <button id="btn4x"   title="Double Fast 4×">▶︎▶︎▶︎4×</button>
+        </div>
+      </div>
+      <div id="miniCal" class="mini-cal"></div>
+    </div>
+
+    <div class="toolbar">
+      <button onclick="UI.show('#panelCompany')">Company</button>
+      <button onclick="UI.show('#panelMarket')">Market</button>
+      <button onclick="UI.openLoadBoard()">Load Board</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
