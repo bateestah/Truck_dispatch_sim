@@ -64,11 +64,23 @@
           <div class="stat"><div class="small">Warehouse – Chicago</div><div class="row"><div class="pill">$1,200,000</div><button class="btn" onclick="Game.buyProperty('Chicago Warehouse','Chicago, IL',1200000)">Buy</button></div></div>
         </div>
 
-        <div class="hint">Overhead increases per owned truck ($50/day) and per property ($200/day).</div>
+      <div class="hint">Overhead increases per owned truck ($50/day) and per property ($200/day).</div>
       </div>
     </div>
 
-    
+
+    <!-- Bank Panel -->
+    <div class="panel" id="panelBank">
+      <header>
+        <div>Bank</div>
+        <div class="close-x" data-close="#panelBank">✕</div>
+      </header>
+      <div class="content">
+        <!-- bank content rendered dynamically -->
+      </div>
+    </div>
+
+
     <!-- Time HUD: clock + month calendar + time controls -->
     <div id="timeHud" class="time-hud">
       <div class="time-row">

@@ -27,6 +27,10 @@ select, input[type="number"], input[type="text"]{width:100%; padding:8px; border
 .drawbar .lbl{font-size:12px; opacity:.8;}
 .file-input{display:none;}
 .badge{font-size:12px; opacity:.8; padding:4px 6px; border:1px solid #2d3943; border-radius:6px;}
+.clickable{cursor:pointer; text-decoration:underline;}
+.cash-flow{max-height:160px; overflow-y:auto;}
+.cash-flow .cf-item{display:flex; justify-content:space-between;}
+.loan{background:#101a20; border:1px solid #1e2a33; border-radius:8px; padding:8px; margin-bottom:8px;}
 /* === Load Board width patch === */
 #panelLoadBoard,
 .load-board {
