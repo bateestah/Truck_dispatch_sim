@@ -290,6 +290,26 @@ function setMode(mode){
   else { btnBack.style.display='none'; btnMy.style.display='inline-block'; }
 }
 
+function refreshDriverDropdowns(){
+  if(_mode!=='available') return;
+  const drivers=getIdleDrivers();
+  document.querySelectorAll(`#${PANEL_ID} .lb-card`).forEach(card=>{
+    const assign=card.querySelector('.lb-assign'); if(!assign) return;
+    const sel=assign.querySelector('select.lb-driver');
+    if(drivers.length){
+      const opts=drivers.map(d=>`<option value="${String(d.id)}">${d.name}</option>`).join('');
+      if(sel){
+        const val=sel.value; sel.innerHTML=opts;
+        if(val && sel.querySelector(`option[value="${val}"]`)) sel.value=val;
+      } else {
+        assign.innerHTML=`<select class="lb-driver">${opts}</select>`;
+      }
+    } else if(sel){
+      assign.innerHTML='<div class="lb-nodrivers">No idle drivers</div>';
+    }
+  });
+}
+
 export function openLoadBoard(){
   if(!_panel) initLoadBoard();
   _panel.style.display='block';
@@ -316,3 +336,5 @@ export function initLoadBoard(){
 }
 
 window.LoadBoard = { initLoadBoard, openLoadBoard, closeLoadBoard, showAvailable, showMyLoads };
+
+document.addEventListener('driversUpdated', refreshDriverDropdowns);

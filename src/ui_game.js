@@ -510,6 +510,7 @@ export const Game = {
     this.drivers.push(driver);
     driver.render();
     UI.updateLegend();
+    document.dispatchEvent(new CustomEvent('driversUpdated'));
   },
   buyEquipment(type, model, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
