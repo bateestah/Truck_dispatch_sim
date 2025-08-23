@@ -704,13 +704,15 @@ export const Game = {
         const t = (now - ld.startTime) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
-          if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
-            const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
-            const mainLoad = {
-              id: crypto.randomUUID(),
-              driverId: d.id, driverName: d.name, color: d.color,
-              kind: 'Main',
-              originName, destName,
+            if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
+              // Mark the deadhead leg as complete so the driver can take new loads
+              ld.status = 'Delivered';
+              const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
+              const mainLoad = {
+                id: crypto.randomUUID(),
+                driverId: d.id, driverName: d.name, color: d.color,
+                kind: 'Main',
+                originName, destName,
               start: route.path[0], end: route.path[route.path.length-1],
               miles: mainMiles, startTime: Game.getSimNow().getTime(),
               etaMs: etaMainMs, status: 'En Route', profit
