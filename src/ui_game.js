@@ -11,10 +11,19 @@ import { map } from './map.js';
 /* ---------- UI ---------- */
 export const UI = {
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
-  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } },
+  show(sel){
+    document.querySelectorAll('.panel').forEach(p=>p.style.display='none');
+    const el=document.querySelector(sel); if (el) el.style.display='block';
+    if(sel==='#panelCompany'){
+      try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){}
+    }
+    if(sel==='#panelBank'){
+      try{ UI.refreshBank(); }catch(e){}
+    }
+  },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
-    ['panelCompany','panelMarket'].forEach(id=>makeDraggable(document.getElementById(id)));
+    ['panelCompany','panelMarket','panelBank'].forEach(id=>makeDraggable(document.getElementById(id)));
     // Override city selects
     fillCitySelectGrouped(document.getElementById('ovrOrigin'));
     fillCitySelectGrouped(document.getElementById('ovrDest'));
@@ -114,7 +123,7 @@ export const UI = {
       content.innerHTML = `
         <div class="grid cols-2 company-grid">
           <div>
-            <div class="stat">
+            <div class="stat clickable" id="statBankContainer">
               <div class="small">Bank</div>
               <div id="statBank">$${Game.bank.toLocaleString()}</div>
             </div>
@@ -167,6 +176,9 @@ export const UI = {
         const names = (CityGroups||[]).flatMap(g=>g.items).slice(0, 500).map(c=>c.name);
         names.forEach(n => { const o=document.createElement('option'); o.value=n; list.appendChild(o); });
       }
+
+      const bankBtn = content.querySelector('#statBankContainer');
+      if(bankBtn){ bankBtn.addEventListener('click', ()=>UI.show('#panelBank')); }
 
       const dlg = content.querySelector('#dlgAddDriver');
       const btnAdd = content.querySelector('#btnAddDriver');
@@ -253,6 +265,55 @@ export const UI = {
         if(d && document.getElementById('hosChart')) UI._drawHosChart(d);
       }
     }catch(e){}
+  },
+
+  refreshBank(){
+    const panel=document.getElementById('panelBank');
+    if(!panel) return;
+    const content=panel.querySelector('.content');
+    if(!content) return;
+
+    const disabled = Game.loans.length>=3 ? 'disabled' : '';
+
+    const loansHtml = Game.loans.length ? Game.loans.map(l=>{
+      let sched='<ul class="schedule">';
+      for(let i=0;i<l.remaining;i++){
+        const dt=new Date(l.nextDue + i*30*24*3600*1000).toLocaleDateString();
+        sched+=`<li>${dt} - $${l.payment.toLocaleString()}</li>`;
+      }
+      sched+='</ul>';
+      return `<div class="loan">
+        <div><strong>$${l.amount.toLocaleString()}</strong> loan — Balance: $${l.balance.toLocaleString()}</div>
+        <div>Next payment $${l.payment.toLocaleString()} due ${new Date(l.nextDue).toLocaleDateString()}</div>
+        ${sched}
+        <div class="row" style="margin-top:4px; gap:4px;">
+          <button class="btn pay" data-id="${l.id}">Pay</button>
+          <button class="btn payoff" data-id="${l.id}">Pay Off</button>
+        </div>
+      </div>`;
+    }).join('') : '<div class="hint">No active loans.</div>';
+
+    const flowHtml = `<ul class="cashflow">${Game.cashFlow.slice().reverse().slice(0,10).map(f=>`<li>${new Date(f.time).toLocaleString()} ${f.desc}: ${f.amount>=0?'+':'-'}$${Math.abs(f.amount).toLocaleString()}</li>`).join('')}</ul>`;
+
+    content.innerHTML=`
+      <div class="stat"><div class="small">Balance</div><div>$${Game.bank.toLocaleString()}</div></div>
+      <h3>Loans</h3>
+      <div class="row" style="gap:8px;">
+        <button id="loan10" class="btn" ${disabled}>Borrow $10k</button>
+        <button id="loan25" class="btn" ${disabled}>Borrow $25k</button>
+        <button id="loan100" class="btn" ${disabled}>Borrow $100k</button>
+      </div>
+      ${loansHtml}
+      <h3>Cash Flow</h3>
+      ${flowHtml}
+    `;
+
+    const take=amt=>{ Game.takeLoan(amt); UI.refreshBank(); UI.refreshCompany(); };
+    content.querySelector('#loan10')?.addEventListener('click', ()=>take(10000));
+    content.querySelector('#loan25')?.addEventListener('click', ()=>take(25000));
+    content.querySelector('#loan100')?.addEventListener('click', ()=>take(100000));
+    content.querySelectorAll('.pay').forEach(btn=>btn.addEventListener('click', ()=>{ Game.makeLoanPayment(btn.getAttribute('data-id')); UI.refreshBank(); UI.refreshCompany(); }));
+    content.querySelectorAll('.payoff').forEach(btn=>btn.addEventListener('click', ()=>{ Game.payOffLoan(btn.getAttribute('data-id')); UI.refreshBank(); UI.refreshCompany(); }));
   },
 
   // Provide HOS segments for charting; prefer live driver data, fallback to a tiny stub.
@@ -473,6 +534,8 @@ export const Game = {
   equipment: [],
   properties: [],
   loads: [],
+  loans: [],
+  cashFlow: [],
   // --- Simulation Time (starts Jan 1, 2020) ---
   simEpoch: new Date(2020, 0, 1, 0, 0, 0), // Jan 1, 2020
   _simElapsedMs: 0,
@@ -489,6 +552,11 @@ export const Game = {
       this.paused = false;
     }
     this.speed = mult;
+  },
+
+  logCashFlow(amount, desc){
+    this.cashFlow.push({time:this.getSimNow().getTime(), amount, desc});
+    if(this.cashFlow.length>100) this.cashFlow.shift();
   },
 
   tickMs: 1000,
@@ -515,14 +583,45 @@ export const Game = {
   buyEquipment(type, model, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
     this.bank -= cost;
+    this.logCashFlow(-cost, `Buy ${type} ${model}`);
     this.equipment.push({type, model, owner:'You'});
     UI.refreshCompany();
   },
   buyProperty(name, city, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
     this.bank -= cost;
+    this.logCashFlow(-cost, `Buy Property ${name}`);
     this.properties.push({name, city});
     UI.refreshCompany();
+  },
+
+  takeLoan(amount){
+    if(this.loans.length>=3){ alert('Loan limit reached.'); return; }
+    const id=crypto.randomUUID();
+    const payments=12;
+    const payment=Math.ceil(amount/payments);
+    const nextDue=this.getSimNow().getTime()+30*24*3600*1000;
+    this.loans.push({id,amount,balance:amount,payment,remaining:payments,nextDue});
+    this.bank+=amount;
+    this.logCashFlow(amount,'Loan');
+    UI.refreshCompany();
+  },
+  makeLoanPayment(id){
+    const l=this.loans.find(x=>x.id===id); if(!l) return;
+    const pay=Math.min(l.payment,l.balance);
+    if(this.bank<pay){ alert('Insufficient funds.'); return; }
+    this.bank-=pay;
+    this.logCashFlow(-pay,'Loan payment');
+    l.balance-=pay; l.remaining-=1; l.nextDue+=30*24*3600*1000;
+    if(l.balance<=0 || l.remaining<=0){ this.loans=this.loans.filter(x=>x.id!==id); }
+  },
+  payOffLoan(id){
+    const l=this.loans.find(x=>x.id===id); if(!l) return;
+    const pay=l.balance;
+    if(this.bank<pay){ alert('Insufficient funds.'); return; }
+    this.bank-=pay;
+    this.logCashFlow(-pay,'Loan payoff');
+    this.loans=this.loans.filter(x=>x.id!==id);
   },
 
   // ----- Load Board integration: assign + deadhead -> main leg
@@ -588,6 +687,7 @@ export const Game = {
 
   completeLoad(load) {
     this.bank += load.profit;
+    this.logCashFlow(load.profit, 'Load delivered');
     load.status = 'Delivered';
     UI.refreshDispatch();
     UI.refreshCompany();
@@ -632,7 +732,7 @@ export const Game = {
     const trucks = this.equipment.filter(e => e.type === 'truck').length;
     const props = this.properties.length;
     const burn = trucks * this.overheadPerTruck + props * this.overheadPerProperty;
-    if (burn > 0) { this.bank -= burn; UI.refreshCompany(); }
+    if (burn > 0) { this.bank -= burn; this.logCashFlow(-burn, 'Daily overhead'); UI.refreshCompany(); }
   }
   ,jump(ms){
     this._simElapsedMs += Math.max(0, ms|0);

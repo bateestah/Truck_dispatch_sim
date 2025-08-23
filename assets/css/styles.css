@@ -11,6 +11,10 @@ html, body { height: 100%; margin: 0; font-family: system-ui,-apple-system,Segoe
 .grid{display:grid; gap:8px;}
 .grid.cols-2{grid-template-columns:1fr 1fr;}
 .stat{background:#101a20; border:1px solid #1e2a33; border-radius:8px; padding:8px 10px;}
+.stat.clickable{cursor:pointer;}
+.loan{margin-top:10px; padding:8px; border:1px solid #1e2a33; border-radius:8px;}
+.cashflow{max-height:150px; overflow:auto; margin-top:8px;}
+.cashflow li{font-size:12px; margin-bottom:2px;}
 .small{font-size:12px; opacity:.8;}
 table{width:100%; border-collapse:collapse;}
 th,td{text-align:left; border-bottom:1px solid #1f2b33; padding:6px 4px; font-size:14px;}
