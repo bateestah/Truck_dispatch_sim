@@ -1,0 +1,307 @@
+html, body { height: 100%; margin: 0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:#0e0f10; color:#e9eef1;}
+#app { display: grid; grid-template-rows: 1fr auto; height: 100%; }
+#map { width: 100%; height: 100%; }
+.toolbar{display:flex; gap:8px; padding:10px; border-top:1px solid #27313a; background:#11161a; position:relative; z-index:500; flex-wrap:wrap;}
+.toolbar button{background:#1b2832; color:#e9eef1; border:1px solid #2d3943; padding:10px 14px; border-radius:8px; cursor:pointer;}
+.toolbar button:hover{background:#21323d;}
+.panel{position:absolute; left:12px; top:12px; width:380px; max-width:92vw; max-height:76vh; background:#0f1418; border:1px solid #2d3943; border-radius:10px; box-shadow:0 10px 32px rgba(0,0,0,.45); overflow:auto; z-index:600; display:none;}
+.panel header{position:sticky; top:0; background:#0f1418; padding:10px 12px; border-bottom:1px solid #21303a; font-weight:700; display:flex; justify-content:space-between; align-items:center; cursor:move;}
+.panel .content{padding:12px;}
+.close-x{cursor:pointer; opacity:.8;}
+.grid{display:grid; gap:8px;}
+.grid.cols-2{grid-template-columns:1fr 1fr;}
+.stat{background:#101a20; border:1px solid #1e2a33; border-radius:8px; padding:8px 10px;}
+.small{font-size:12px; opacity:.8;}
+table{width:100%; border-collapse:collapse;}
+th,td{text-align:left; border-bottom:1px solid #1f2b33; padding:6px 4px; font-size:14px;}
+.hint{font-size:12px; opacity:.7; margin-top:4px;}
+select, input[type="number"], input[type="text"]{width:100%; padding:8px; border-radius:8px; border:1px solid #2c3943; background:#0f171d; color:#e9eef1;}
+.btn{display:inline-block; padding:8px 12px; border:1px solid #2d3943; background:#1b2832; color:#e9eef1; border-radius:8px; cursor:pointer;}
+.btn:hover{background:#223443;}
+.pill{display:inline-block; padding:2px 8px; border-radius:999px; background:#19303b; border:1px solid #27414f; font-size:12px;}
+.legend{position:absolute; right:12px; top:12px; z-index:550; background:#0f1418; border:1px solid #2d3943; border-radius:10px; padding:8px 10px; display:flex; gap:10px; align-items:center;}
+.legend .dot{width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px;}
+.note{opacity:.8; font-size:12px;}
+.row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.drawbar{position:absolute; left:12px; bottom:70px; z-index:650; background:#0f1418; border:1px solid #2d3943; border-radius:10px; padding:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+.drawbar .lbl{font-size:12px; opacity:.8;}
+.file-input{display:none;}
+.badge{font-size:12px; opacity:.8; padding:4px 6px; border:1px solid #2d3943; border-radius:6px;}
+/* === Load Board width patch === */
+#panelLoadBoard,
+.load-board {
+  width: 1200px !important;    /* make it longer horizontally */
+  max-width: 98vw !important;  /* keep it within the viewport */
+}
+
+#panelLoadBoard .lb-body,
+.load-board .lb-body {
+  grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)) !important;
+}
+/* === Load Board refined layout (scoped) === */
+#panelLoadBoard {
+  width: 1200px !important;     /* long horizontally */
+  max-width: 98vw !important;   /* fit small screens */
+  max-height: 50vh !important;  /* NOT tall */
+  overflow: hidden !important;  /* contain scroll to body */
+}
+
+/* Keep header pinned and content scrollable inside */
+#panelLoadBoard > .content {
+  padding: 10px 10px 12px;
+  height: calc(100% - 48px);    /* header is ~48px */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The list area scrolls; the header row stays visible */
+#panelLoadBoard .lb-body {
+  margin-top: 6px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+}
+
+/* Restore card visuals */
+#panelLoadBoard .lb-card {
+  background: #101a20;
+  border: 1px solid #2d3943;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Typography & spacing to avoid 'flat text' look */
+#panelLoadBoard .lb-lane {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+#panelLoadBoard .lb-payout { font-size: 18px; font-weight: 700; }
+#panelLoadBoard .lb-rpm { font-size: 11px; opacity: .8; }
+#panelLoadBoard .lb-label { font-size: 12px; opacity: .7; margin-right: 4px; }
+#panelLoadBoard .lb-row.top,
+#panelLoadBoard .lb-row.mid,
+#panelLoadBoard .lb-row.bot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+
+/* Make sure the driver dropdown matches theme */
+#panelLoadBoard .lb-driver {
+  background: #0f171d;
+  border: 1px solid #2c3943;
+  color: #e9eef1;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+#panelLoadBoard .lb-driver option { color: #e9eef1; background: #0f171d; }
+
+/* Keep buttons styled */
+#panelLoadBoard .lb-btn {
+  border: 1px solid #2d3943;
+  background: #1b2832;
+  color: #e9eef1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#panelLoadBoard .lb-btn:hover { background: #223443; }
+/* === Load Board scrolling + visible scrollbar === */
+#panelLoadBoard {
+  /* keep it wide; set an explicit height so the inner list can scroll */
+  height: 60vh !important;        /* adjust if you want taller/shorter */
+  max-height: 80vh !important;    /* safety cap for very small screens */
+  overflow: hidden !important;    /* contain scroll inside .content/.lb-body */
+}
+
+#panelLoadBoard > .content {
+  height: calc(100% - 48px);      /* header ~48px */
+  overflow: hidden;                /* no scroll here; delegate to lb-body */
+  display: flex;
+  flex-direction: column;
+}
+
+#panelLoadBoard .lb-body {
+  flex: 1 1 auto;
+  overflow-y: auto;                /* <-- scrolling happens here */
+  -webkit-overflow-scrolling: touch; /* smooth iOS scrolling */
+}
+
+/* Optional: visible, themed scrollbar */
+#panelLoadBoard .lb-body::-webkit-scrollbar {
+  width: 10px;
+}
+#panelLoadBoard .lb-body::-webkit-scrollbar-track {
+  background: #0f1418;
+  border-left: 1px solid #2d3943;
+}
+#panelLoadBoard .lb-body::-webkit-scrollbar-thumb {
+  background: #2d3943;
+  border-radius: 8px;
+}
+#panelLoadBoard .lb-body::-webkit-scrollbar-thumb:hover {
+  background: #3b4a56;
+}
+
+/* Firefox */
+#panelLoadBoard .lb-body {
+  scrollbar-width: thin;
+  scrollbar-color: #2d3943 #0f1418;
+}
+/* === Load Board bottom padding to prevent clipping === */
+#panelLoadBoard .lb-body {
+  padding-bottom: 36px !important;   /* space after the last card */
+  scroll-padding-bottom: 36px;       /* helps snap/scroll calculations */
+}
+
+#panelLoadBoard .lb-card {
+  scroll-margin-bottom: 36px;        /* ensure last card fully scrolls into view */
+}
+
+
+/* ===== Time HUD (clock + mini calendar + time controls) ===== */
+.time-hud{
+  position: absolute;
+  right: 12px;
+  bottom: 84px;
+  z-index: 1200;
+  background: #0f1418;
+  border: 1px solid #2d3943;
+  border-radius: 10px;
+  padding: 8px 12px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+.time-row{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.clock24{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-align: center;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: #101a20;
+  border: 1px solid #2d3943;
+  min-width: 110px;
+}
+.time-controls{
+  display: flex;
+  gap: 6px;
+}
+.time-controls button{
+  background: #1b2832;
+  color: #e9eef1;
+  border: 1px solid #2d3943;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.time-controls button:hover{
+  background: #223443;
+}
+.time-controls button.active{
+  box-shadow: 0 0 0 2px #2d3943 inset;
+}
+.mini-cal .mc-head{
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  opacity: .9;
+  letter-spacing: .3px;
+  margin-bottom: 4px;
+}
+.mini-cal .mc-grid{
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.mini-cal .mc-dow{
+  font-size: 11px;
+  opacity: .7;
+  text-align: center;
+}
+.mini-cal .mc-cell{
+  position: relative;
+  text-align: center;
+  font-size: 12px;
+  padding: 4px 0;
+  border-radius: 6px;
+  background: #101a20;
+  border: 1px solid #1e2a33;
+  min-height: 22px;
+}
+.mini-cal .mc-cell.empty{
+  background: transparent;
+  border-color: transparent;
+}
+.mini-cal .mc-cell .mc-num{
+  opacity: .9;
+}
+.mini-cal .mc-cell .mc-dot{
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: #ff3b30;
+  border-radius: 50%;
+  right: 4px;
+  top: 4px;
+  box-shadow: 0 0 0 2px rgba(0,0,0,.35);
+}
+
+
+/* --- Time HUD placement override (above Leaflet attribution) --- */
+.time-hud{
+  bottom: 64px;  /* clear the attribution box */
+  z-index: 1200 !important; /* above Leaflet controls */
+bottom: 84px; z-index: 1200;}
+
+
+/* --- Time HUD placement override above Leaflet attribution --- */
+.time-hud {
+  position: absolute;
+  right: 10px;
+  bottom: 64px; /* clear attribution */
+  z-index: 1200 !important; /* above Leaflet controls */
+bottom: 84px; z-index: 1200;}
+
+@media (max-width: 640px){ .time-hud{ right:12px; bottom: 84px; } }
+
+
+/* --- Company Panel Rewrite --- */
+.company-grid{align-items:start;}
+.drivers-list{margin-top:8px; max-height:420px; overflow:auto; border:1px solid #1e2a33; border-radius:8px;}
+.driver-item{display:flex; flex-direction:column; gap:2px; padding:8px; border-bottom:1px solid #1f2b33; cursor:pointer;}
+.driver-item:last-child{border-bottom:none;}
+.driver-item .dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; border:1px solid #0003;}
+.driver-item .driver-name{font-weight:600; display:flex; align-items:center; gap:6px;}
+.driver-item .driver-sub{font-size:12px; opacity:.8;}
+.driver-item.active{background:#0f1418;}
+.profile-card{display:block;}
+.profile-header{display:flex; align-items:center; gap:10px;}
+.profile-header .dot{display:inline-block; width:12px; height:12px; border-radius:50%; border:1px solid #0003;}
+.profile-name{font-weight:700; font-size:16px;}
+.profile-sub{font-size:12px; opacity:.8;}
+.modal{border:none; border-radius:10px; padding:0; background:#0d141a; color:#e9eef1;}
+.modal .form{padding:16px; min-width:460px;}
+.modal::backdrop{background:rgba(0,0,0,.5);}
+.pill{display:inline-block; padding:2px 6px; border-radius:999px; border:1px solid #31414b; font-size:12px; opacity:.9; margin-left:6px;}
+.row{display:flex; align-items:center;}
+.grid.cols-3{grid-template-columns: 1fr 1fr 1fr;}
+/* --- End Company Panel Rewrite --- */
