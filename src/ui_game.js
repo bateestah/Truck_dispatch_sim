@@ -10,6 +10,7 @@ import { map } from './map.js';
 
 /* ---------- UI ---------- */
 export const UI = {
+  _hosDayOffset: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } },
   init(){
@@ -324,12 +325,28 @@ export const UI = {
           </div>
         </div>
         <div class="stat" style="margin-top:8px;">
-          <div class="small">HOS (today, 24h log)</div>
+          <div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+            <button id="hosPrev" class="btn" style="padding:2px 6px;">&lt;</button>
+            <div class="small" id="hosDayLabel" style="flex:1; text-align:center;">today</div>
+            <button id="hosNext" class="btn" style="padding:2px 6px;">&gt;</button>
+          </div>
           <canvas id="hosChart" width="340" height="160"></canvas>
         </div>
       </div>
     `;
-    try { UI._drawHosChart(d); } catch (e) {}
+    UI._hosDayOffset = 0;
+    const prev=document.getElementById('hosPrev');
+    const next=document.getElementById('hosNext');
+    const label=document.getElementById('hosDayLabel');
+    const updateNav=()=>{
+      label.textContent = UI._hosDayOffset ? `${UI._hosDayOffset}d ago` : 'today';
+      prev.disabled = UI._hosDayOffset >= 7;
+      next.disabled = UI._hosDayOffset <= 0;
+      try { UI._drawHosChart(d); } catch (e) {}
+    };
+    prev.addEventListener('click',()=>{ if(UI._hosDayOffset < 7){ UI._hosDayOffset++; updateNav(); } });
+    next.addEventListener('click',()=>{ if(UI._hosDayOffset > 0){ UI._hosDayOffset--; updateNav(); } });
+    updateNav();
   },
 
   
@@ -393,7 +410,8 @@ export const UI = {
     });
 
     // Data
-    let segs = (d.getHosSegments24 ? d.getHosSegments24(Game.getSimNow().getTime()) : []);
+    const offsetMs = (UI._hosDayOffset || 0) * 24 * 3600 * 1000;
+    let segs = (d.getHosSegments24 ? d.getHosSegments24(Game.getSimNow().getTime() - offsetMs) : []);
     if (!segs.length) segs = UI._getHosSegments(d);
     if (!segs.length){
       ctx.fillStyle = '#888';
