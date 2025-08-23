@@ -292,6 +292,9 @@ function setMode(mode){
 
 export function openLoadBoard(){
   if(!_panel) initLoadBoard();
+  // Always refresh the available loads so driver dropdowns include
+  // newly-added drivers on first open without requiring a manual refresh.
+  showAvailable();
   _panel.style.display='block';
   if(!_panel.style.top){ _panel.style.left='auto'; _panel.style.top='24px'; _panel.style.right='24px'; }
 }
@@ -311,7 +314,6 @@ export function initLoadBoard(){
   pruneCompleted();
   _panel = ensurePanel();
   _listEl = _panel.querySelector('#lb-list');
-  showAvailable();
   return _panel;
 }
 
