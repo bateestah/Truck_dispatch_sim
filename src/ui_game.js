@@ -99,7 +99,12 @@ export const UI = {
     updateToggle();
   },
   refreshAll(){ this.refreshCompany(); this.refreshDispatch(); this.updateLegend(); },
-  
+
+  refreshBank(){
+    const el = document.getElementById('statBank');
+    if (el) el.textContent = '$' + Game.bank.toLocaleString();
+  },
+
   refreshCompany(){
     const panel = document.getElementById('panelCompany');
     if (!panel) return;
@@ -224,7 +229,7 @@ export const UI = {
 
     const trucks=Game.equipment.filter(e=>e.type==='truck').length, props=Game.properties.length;
     const overhead=trucks*Game.overheadPerTruck + props*Game.overheadPerProperty;
-    const bankEl = document.getElementById('statBank'); if (bankEl) bankEl.textContent = '$' + Game.bank.toLocaleString();
+    UI.refreshBank();
     const ohEl = document.getElementById('statOverhead'); if (ohEl) ohEl.textContent = '$' + overhead.toLocaleString() + ' / day';
 
     if (UI._companyNeedsListRefresh){ UI._companyRenderDriverList(); UI._companyNeedsListRefresh=false; } else { UI._companyRenderDriverList(); }
@@ -232,7 +237,7 @@ export const UI = {
 
 
   updateCompanyLive(){
-    const el=document.getElementById('statBank'); if (el) el.textContent='$'+Game.bank.toLocaleString();
+    UI.refreshBank();
     try{
       const list=document.getElementById('driversList');
       if(list){
@@ -433,7 +438,7 @@ export const UI = {
                     <td>${l.status}${l.status==='Delivered' ? ` (+$${l.profit.toLocaleString()})` : ''}</td>`;
       tbody.appendChild(tr);
     }
-    document.getElementById('statBank').textContent='$'+Game.bank.toLocaleString();
+    UI.refreshBank();
   },
   refreshTablesLive(){ try{ UI.updateCompanyLive && UI.updateCompanyLive(); }catch(e){} try{ this.refreshDispatch(); }catch(e){} },
   updateLegend(){
@@ -517,12 +522,14 @@ export const Game = {
     this.bank -= cost;
     this.equipment.push({type, model, owner:'You'});
     UI.refreshCompany();
+    UI.refreshBank();
   },
   buyProperty(name, city, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
     this.bank -= cost;
     this.properties.push({name, city});
     UI.refreshCompany();
+    UI.refreshBank();
   },
 
   // ----- Load Board integration: assign + deadhead -> main leg
