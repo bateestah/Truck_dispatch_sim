@@ -230,12 +230,33 @@ export const UI = {
     if (UI._companyNeedsListRefresh){ UI._companyRenderDriverList(); UI._companyNeedsListRefresh=false; } else { UI._companyRenderDriverList(); }
 },
 
+
   updateCompanyLive(){
     const el=document.getElementById('statBank'); if (el) el.textContent='$'+Game.bank.toLocaleString();
-    try{ const list=document.getElementById('driversList'); if(list){ for(const item of list.querySelectorAll('.driver-item')){ const id=item.getAttribute('data-id'); const d=Game.drivers.find(x=>String(x.id)===String(id)); if(d){ const sub=item.querySelector('.driver-sub'); if(sub){ sub.textContent = d.status + ' • ' + (d.cityName || (d.lat.toFixed(2)+', '+d.lng.toFixed(2))); } } } } }catch(e){}
-    try{ const sid=UI._companySelectedId; if(sid){ const d=Game.drivers.find(x=>String(x.id)===String(sid)); if(d && document.getElementById('hosChart')) UI.
+    try{
+      const list=document.getElementById('driversList');
+      if(list){
+        for(const item of list.querySelectorAll('.driver-item')){
+          const id=item.getAttribute('data-id');
+          const d=Game.drivers.find(x=>String(x.id)===String(id));
+          if(d){
+            const sub=item.querySelector('.driver-sub');
+            if(sub){ sub.textContent = d.status + ' • ' + (d.cityName || (d.lat.toFixed(2)+', '+d.lng.toFixed(2))); }
+          }
+        }
+      }
+    }catch(e){}
+    try{
+      const sid=UI._companySelectedId;
+      if(sid){
+        const d=Game.drivers.find(x=>String(x.id)===String(sid));
+        if(d && document.getElementById('hosChart')) UI._drawHosChart(d);
+      }
+    }catch(e){}
+  },
+
   // Provide HOS segments for charting; prefer live driver data, fallback to a tiny stub.
-  UI._getHosSegments = function(d){
+  _getHosSegments(d){
     if (d && Array.isArray(d.hosSegments) && d.hosSegments.length) return d.hosSegments;
     try{
       const now = Game.getSimNow();
@@ -244,8 +265,6 @@ export const UI = {
       const start = Math.max(0, hr-1);
       return [{start:0, end:start, status:'SB'}, {start, end:hr, status:base}];
     }catch(e){ return []; }
-  };
-_drawHosChart(d); } }catch(e){}
   },
 
   _companyRenderDriverList(){
@@ -372,7 +391,8 @@ _drawHosChart(d); } }catch(e){}
     });
 
     // Data
-    const segs = (d.getHosSegments24 ? d.getHosSegments24(Game.getSimNow().getTime()) : []);
+    let segs = (d.getHosSegments24 ? d.getHosSegments24(Game.getSimNow().getTime()) : []);
+    if (!segs.length) segs = UI._getHosSegments(d);
     if (!segs.length){
       ctx.fillStyle = '#888';
       ctx.textAlign = 'left';
