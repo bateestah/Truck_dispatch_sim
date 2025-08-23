@@ -187,9 +187,10 @@ export class Driver {
     const add = 2 + Math.floor(Math.random()*3);
     this.hos[todayIdx] = Math.min(11, (this.hos[todayIdx]||0) + add);
     if (this.routeLine){
-      try{ this.routeLine.setStyle({opacity:0.3, dashArray:'4 6'});}catch(e){}
-      setTimeout(()=>{ try{ map.removeLayer(this.routeLine); }catch(e){} }, 4000);
-      this.routeLine=null;
+      const oldLine = this.routeLine;
+      this.routeLine = null;
+      try { oldLine.setStyle({ opacity:0.3, dashArray:'4 6' }); } catch(e){}
+      setTimeout(()=>{ try{ map.removeLayer(oldLine); }catch(e){} }, 4000);
     }
   }
 }
