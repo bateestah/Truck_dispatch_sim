@@ -42,10 +42,18 @@ const TrailerPriceRanges = {
 export const UI = {
   _hosDayOffset: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
-  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } },
+  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
+  overlay(sel){
+    ['#panelEquipment', '#panelProperties'].forEach(p => {
+      const panel = document.querySelector(p);
+      if (panel) panel.style.display = (p === sel) ? 'block' : 'none';
+    });
+    if (sel === '#panelEquipment') { try { UI.refreshEquipment(); } catch (e) {} }
+    if (sel === '#panelProperties') { try { UI.refreshProperties(); } catch (e) {} }
+  },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
-    ['panelCompany','panelMarket','panelBank'].forEach(id=>makeDraggable(document.getElementById(id)));
+    ['panelCompany','panelMarket','panelBank','panelEquipment','panelProperties'].forEach(id=>makeDraggable(document.getElementById(id)));
     // Override city selects
     fillCitySelectGrouped(document.getElementById('ovrOrigin'));
     fillCitySelectGrouped(document.getElementById('ovrDest'));
@@ -129,7 +137,7 @@ export const UI = {
     refreshGhost();
     updateToggle();
   },
-  refreshAll(){ this.refreshCompany(); this.refreshDispatch(); this.updateLegend(); this.refreshBank(); },
+  refreshAll(){ this.refreshCompany(); this.refreshDispatch(); this.updateLegend(); this.refreshBank(); this.refreshEquipment(); this.refreshProperties(); },
 
   renderMarket(){
     const panel = document.getElementById('panelMarket'); if(!panel) return;
@@ -199,6 +207,10 @@ export const UI = {
               <button id="btnAddDriver" class="btn">Add Driver</button>
               <input id="txtDriverSearch" type="text" placeholder="Search drivers..." />
             </div>
+            <div class="row" style="margin-top:8px; gap:8px;">
+              <button id="btnShowEquipment" class="btn">Equipment</button>
+              <button id="btnShowProperties" class="btn">Properties</button>
+            </div>
 
             <div id="driversList" class="drivers-list"></div>
             
@@ -264,6 +276,11 @@ export const UI = {
   } catch(err){ alert(err.message || err); }
 });
       }
+
+      const btnEquip = content.querySelector('#btnShowEquipment');
+      if(btnEquip) btnEquip.addEventListener('click', ()=>UI.overlay('#panelEquipment'));
+      const btnProps = content.querySelector('#btnShowProperties');
+      if(btnProps) btnProps.addEventListener('click', ()=>UI.overlay('#panelProperties'));
 
       const listEl = content.querySelector('#driversList');
       if (listEl){
@@ -549,6 +566,20 @@ export const UI = {
     `;
   },
 
+  refreshEquipment(){
+    const panel=document.getElementById('panelEquipment'); if(!panel) return;
+    const content=panel.querySelector('.content'); if(!content) return;
+    const html = Game.equipment.map(e=>`<div class="stat"><div class="small">${e.type}</div><div>${e.model}</div></div>`).join('');
+    content.innerHTML = html || '<div class="hint">No equipment owned.</div>';
+  },
+
+  refreshProperties(){
+    const panel=document.getElementById('panelProperties'); if(!panel) return;
+    const content=panel.querySelector('.content'); if(!content) return;
+    const html = Game.properties.map(p=>`<div class="stat"><div class="small">${p.name}</div><div>${p.city}</div></div>`).join('');
+    content.innerHTML = html || '<div class="hint">No properties owned.</div>';
+  },
+
   _loanScheduleHtml(loan){
     let remaining=loan.total;
     let rows='';
@@ -664,13 +695,15 @@ export const Game = {
   },
   buyEquipment(type, model, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
-    this.addCash(-cost, `Bought ${model}`);
     this.equipment.push({type, model, owner:'You'});
+    this.addCash(-cost, `Bought ${model}`);
+    UI.refreshEquipment();
   },
   buyProperty(name, city, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
-    this.addCash(-cost, `Bought ${name}`);
     this.properties.push({name, city});
+    this.addCash(-cost, `Bought ${name}`);
+    UI.refreshProperties();
   },
 
   takeLoan(amount){
