@@ -136,7 +136,7 @@ export const UI = {
     const content = panel.querySelector('.content'); if(!content) return;
     const rand = (min,max) => Math.round(Math.random()*(max-min)+min);
 
-    let html = '<h3>Buy Trucks</h3><div class="grid cols-2">';
+    let html = '<h3>Buy Trucks</h3><div class="grid cols-3">';
     TruckCatalog.forEach(t => {
       t.configs.forEach(cfg => {
         ['New','Used'].forEach(cond => {
@@ -148,7 +148,7 @@ export const UI = {
     });
     html += '</div>';
 
-    html += '<h3 style="margin-top:14px;">Buy Trailers</h3><div class="grid cols-2">';
+    html += '<h3 style="margin-top:14px;">Buy Trailers</h3><div class="grid cols-3">';
     TrailerCatalog.forEach(tr => {
       tr.types.forEach(type => {
         ['New','Used'].forEach(cond => {
@@ -162,7 +162,7 @@ export const UI = {
 
     html += `
       <h3 style="margin-top:14px;">Buy Property</h3>
-      <div class="grid cols-2">
+      <div class="grid cols-3">
         <div class="stat"><div class="small">Small Yard – Dallas</div><div class="row"><div class="pill">$350,000</div><button class="btn" onclick="Game.buyProperty('Dallas Yard','Dallas, TX',350000)">Buy</button></div></div>
         <div class="stat"><div class="small">Warehouse – Chicago</div><div class="row"><div class="pill">$1,200,000</div><button class="btn" onclick="Game.buyProperty('Chicago Warehouse','Chicago, IL',1200000)">Buy</button></div></div>
       </div>
