@@ -8,11 +8,41 @@ import { OverrideStore } from './store.js';
 import { initLoadBoard, openLoadBoard } from './load_board.js';
 import { map } from './map.js';
 
+// Catalog data for market
+const TruckCatalog = [
+  { make: 'Freightliner', model: 'Cascadia', configs: ['Sleeper', 'Day Cab'] },
+  { make: 'Peterbilt', model: '579', configs: ['Sleeper', 'Day Cab'] },
+  { make: 'Peterbilt', model: '589', configs: ['Sleeper'] },
+  { make: 'Kenworth', model: 'T680', configs: ['Sleeper', 'Day Cab'] },
+  { make: 'Kenworth', model: 'W900', configs: ['Sleeper'] },
+  { make: 'Western Star', model: '57X', configs: ['Sleeper'] },
+  { make: 'Volvo', model: 'VNL 860', configs: ['Sleeper'] },
+  { make: 'Volvo', model: 'VNL 660', configs: ['Sleeper'] },
+  { make: 'Volvo', model: 'VNL 300', configs: ['Day Cab'] },
+  { make: 'Mack', model: 'Anthem', configs: ['Sleeper', 'Day Cab'] },
+  { make: 'International', model: 'LT', configs: ['Sleeper', 'Day Cab'] },
+  { make: 'International', model: 'LoneStar', configs: ['Sleeper'] }
+];
+
+const TrailerCatalog = [
+  { make: 'Hyundai', types: ['Dry Van', 'Reefer'] },
+  { make: 'Wabash', types: ['Dry Van', 'Reefer', 'Tanker'] },
+  { make: 'Great Dane', types: ['Dry Van', 'Reefer', 'Flatbed'] },
+  { make: 'Fontaine', types: ['Flatbed'] }
+];
+
+const TrailerPriceRanges = {
+  'Dry Van': { new: [30000, 60000], used: [11000, 17000] },
+  'Reefer':  { new: [40000, 80000], used: [17000, 30000] },
+  'Flatbed': { new: [15000, 50000], used: [12000, 18000] },
+  'Tanker':  { new: [20000, 60000], used: [10000, 20000] }
+};
+
 /* ---------- UI ---------- */
 export const UI = {
   _hosDayOffset: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
-  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } },
+  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
     ['panelCompany','panelMarket','panelBank'].forEach(id=>makeDraggable(document.getElementById(id)));
@@ -100,7 +130,48 @@ export const UI = {
     updateToggle();
   },
   refreshAll(){ this.refreshCompany(); this.refreshDispatch(); this.updateLegend(); this.refreshBank(); },
-  
+
+  renderMarket(){
+    const panel = document.getElementById('panelMarket'); if(!panel) return;
+    const content = panel.querySelector('.content'); if(!content) return;
+    const rand = (min,max) => Math.round(Math.random()*(max-min)+min);
+
+    let html = '<h3>Buy Trucks</h3><div class="grid cols-2">';
+    TruckCatalog.forEach(t => {
+      t.configs.forEach(cfg => {
+        ['New','Used'].forEach(cond => {
+          let price = rand(cond==='New'?165000:40000, cond==='New'?200000:60000);
+          if (cfg.toLowerCase().includes('day')) price -= rand(5000,10000);
+          html += `<div class="stat"><div class="small">${t.make} ${t.model} ${cfg} (${cond})</div><div class="row"><div class="pill">$${price.toLocaleString()}</div><button class="btn" onclick="Game.buyEquipment('truck','${t.make} ${t.model} ${cfg} (${cond})',${price})">Buy</button></div></div>`;
+        });
+      });
+    });
+    html += '</div>';
+
+    html += '<h3 style="margin-top:14px;">Buy Trailers</h3><div class="grid cols-2">';
+    TrailerCatalog.forEach(tr => {
+      tr.types.forEach(type => {
+        ['New','Used'].forEach(cond => {
+          const rng = TrailerPriceRanges[type][cond.toLowerCase()];
+          let price = rand(rng[0], rng[1]);
+          html += `<div class="stat"><div class="small">${tr.make} ${type} (${cond})</div><div class="row"><div class="pill">$${price.toLocaleString()}</div><button class="btn" onclick="Game.buyEquipment('trailer','${tr.make} ${type} (${cond})',${price})">Buy</button></div></div>`;
+        });
+      });
+    });
+    html += '</div>';
+
+    html += `
+      <h3 style="margin-top:14px;">Buy Property</h3>
+      <div class="grid cols-2">
+        <div class="stat"><div class="small">Small Yard – Dallas</div><div class="row"><div class="pill">$350,000</div><button class="btn" onclick="Game.buyProperty('Dallas Yard','Dallas, TX',350000)">Buy</button></div></div>
+        <div class="stat"><div class="small">Warehouse – Chicago</div><div class="row"><div class="pill">$1,200,000</div><button class="btn" onclick="Game.buyProperty('Chicago Warehouse','Chicago, IL',1200000)">Buy</button></div></div>
+      </div>
+      <div class="hint">Overhead increases per owned truck ($50/day) and per property ($200/day).</div>
+    `;
+
+    content.innerHTML = html;
+  },
+
   refreshCompany(){
     const panel = document.getElementById('panelCompany');
     if (!panel) return;
