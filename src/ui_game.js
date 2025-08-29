@@ -200,6 +200,11 @@ export const UI = {
               <input id="txtDriverSearch" type="text" placeholder="Search drivers..." />
             </div>
 
+            <div class="row" style="margin-top:8px; gap:8px;">
+              <button id="btnShowEquipment" class="btn">Equipment</button>
+              <button id="btnShowProperties" class="btn">Properties</button>
+            </div>
+
             <div id="driversList" class="drivers-list"></div>
             
           </div>
@@ -230,6 +235,24 @@ export const UI = {
               <button id="btnCreateDriver" value="default" class="btn">Create</button>
             </menu>
           </form>
+        </dialog>
+        <dialog id="dlgEquipment" class="modal">
+          <div class="form">
+            <h3>Owned Equipment</h3>
+            <div id="equipmentList"></div>
+            <menu style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+              <button id="btnCloseEquipment" class="btn">Close</button>
+            </menu>
+          </div>
+        </dialog>
+        <dialog id="dlgProperties" class="modal">
+          <div class="form">
+            <h3>Owned Properties</h3>
+            <div id="propertiesList"></div>
+            <menu style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+              <button id="btnCloseProperties" class="btn">Close</button>
+            </menu>
+          </div>
         </dialog>
         <datalist id="citiesList"></datalist>
       `;
@@ -263,6 +286,22 @@ export const UI = {
     UI.refreshCompany();
   } catch(err){ alert(err.message || err); }
 });
+      }
+
+      const btnEquip = content.querySelector('#btnShowEquipment');
+      const dlgEquip = content.querySelector('#dlgEquipment');
+      if(btnEquip && dlgEquip){
+        btnEquip.addEventListener('click', ()=>{ UI._renderEquipmentList(); dlgEquip.showModal(); });
+        const close = dlgEquip.querySelector('#btnCloseEquipment');
+        if(close) close.addEventListener('click', ()=>dlgEquip.close());
+      }
+
+      const btnProps = content.querySelector('#btnShowProperties');
+      const dlgProps = content.querySelector('#dlgProperties');
+      if(btnProps && dlgProps){
+        btnProps.addEventListener('click', ()=>{ UI._renderPropertiesList(); dlgProps.showModal(); });
+        const close = dlgProps.querySelector('#btnCloseProperties');
+        if(close) close.addEventListener('click', ()=>dlgProps.close());
       }
 
       const listEl = content.querySelector('#driversList');
@@ -370,6 +409,22 @@ export const UI = {
         el.style.display = name.includes(query) ? '' : 'none';
       }
     }
+  },
+
+  _renderEquipmentList(){
+    const list = document.getElementById('equipmentList');
+    if(!list) return;
+    list.innerHTML = Game.equipment.length
+      ? Game.equipment.map(e=>`<div class="stat"><div class=\"small\">${e.type}</div><div>${e.model}</div></div>`).join('')
+      : '<div class="hint">No equipment owned.</div>';
+  },
+
+  _renderPropertiesList(){
+    const list = document.getElementById('propertiesList');
+    if(!list) return;
+    list.innerHTML = Game.properties.length
+      ? Game.properties.map(p=>`<div class="stat"><div>${p.name}</div><div class=\"small\">${p.city}</div></div>`).join('')
+      : '<div class="hint">No properties owned.</div>';
   },
 
   _showDriverProfile(d){
