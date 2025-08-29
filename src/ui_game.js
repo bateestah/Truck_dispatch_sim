@@ -3,6 +3,7 @@ import { Driver } from './driver.js';
 import { Router } from './router.js';
 import { fmtETA } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
+import { TRUCK_MODELS, TRAILER_MODELS } from './data/equipment.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
 import { OverrideStore } from './store.js';
 import { initLoadBoard, openLoadBoard } from './load_board.js';
@@ -12,7 +13,21 @@ import { map } from './map.js';
 export const UI = {
   _hosDayOffset: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
-  show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } },
+  show(sel){
+    document.querySelectorAll('.panel').forEach(p=>p.style.display='none');
+    const el=document.querySelector(sel);
+    if (el) el.style.display='block';
+    if(sel==='#panelCompany'){
+      try{
+        const s=document.getElementById('txtDriverSearch');
+        if(s) s.value='';
+        UI._companyNeedsListRefresh=true;
+        UI.refreshCompany();
+      }catch(e){}
+    }
+    if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} }
+    if(sel==='#panelMarket'){ try{ UI.refreshMarket(); }catch(e){} }
+  },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
     ['panelCompany','panelMarket','panelBank'].forEach(id=>makeDraggable(document.getElementById(id)));
@@ -100,6 +115,45 @@ export const UI = {
     updateToggle();
   },
   refreshAll(){ this.refreshCompany(); this.refreshDispatch(); this.updateLegend(); this.refreshBank(); },
+
+  refreshMarket(){
+    const panel=document.getElementById('panelMarket');
+    if(!panel) return;
+    const container=panel.querySelector('#marketEquipment');
+    if(!container) return;
+    container.innerHTML='';
+    const rand=(min,max)=>Math.floor(Math.random()*(max-min+1))+min;
+    const add=(type,label,price)=>{
+      const div=document.createElement('div');
+      div.className='stat';
+      div.innerHTML=`<div class="small">${label}</div><div class="row"><div class="pill">$${price.toLocaleString()}</div><button class="btn">Buy</button></div>`;
+      div.querySelector('button').onclick=()=>Game.buyEquipment(type,label,price);
+      container.appendChild(div);
+    };
+    TRUCK_MODELS.forEach(t=>{
+      t.variants.forEach(v=>{
+        const newPrice=rand(165000,200000)-(v==='Day Cab'?rand(5000,10000):0);
+        add('truck', `${t.make} ${t.model} ${v} (New)`, newPrice);
+        const usedPrice=rand(40000,60000)-(v==='Day Cab'?rand(5000,10000):0);
+        add('truck', `${t.make} ${t.model} ${v} (Used)`, usedPrice);
+      });
+    });
+    const ranges={
+      'Dry Van': {new:[30000,60000], used:[11000,17000]},
+      'Reefer': {new:[40000,80000], used:[17000,30000]},
+      'Flatbed': {new:[15000,50000], used:[12000,18000]},
+      'Tanker': {new:[20000,60000], used:[10000,20000]}
+    };
+    TRAILER_MODELS.forEach(t=>{
+      t.types.forEach(type=>{
+        const r=ranges[type];
+        const newPrice=rand(r.new[0], r.new[1]);
+        add('trailer', `${t.brand} ${type} (New)`, newPrice);
+        const usedPrice=rand(r.used[0], r.used[1]);
+        add('trailer', `${t.brand} ${type} (Used)`, usedPrice);
+      });
+    });
+  },
   
   refreshCompany(){
     const panel = document.getElementById('panelCompany');
