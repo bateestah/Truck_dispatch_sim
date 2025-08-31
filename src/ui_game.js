@@ -633,20 +633,39 @@ export const UI = {
       return;
     }
 
-    // Draw segments as thick horizontal bars
+    // Draw segments as a continuous step graph, connecting status changes vertically
+    const xCoord = hr => padding.l + (Math.max(0, Math.min(24, hr))/24) * W;
+    const yCoord = st => {
+      const idx = rows.indexOf(st);
+      return idx < 0 ? null : padding.t + idx*rowH + rowH/2;
+    };
+
     ctx.lineWidth = 6;
     ctx.strokeStyle = '#2a7';
-    segs.forEach(seg=>{
-      const idx = rows.indexOf(seg.status || seg.s || 'OFF');
-      if (idx < 0) return;
-      const y = padding.t + idx*rowH + rowH/2;
-      const x1 = padding.l + (Math.max(0, Math.min(24, seg.start))/24)*W;
-      const x2 = padding.l + (Math.max(0, Math.min(24, seg.end))/24)*W;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'butt';
+
+    const first = segs[0];
+    let y = yCoord(first.status || first.s || 'OFF');
+    if (y !== null){
       ctx.beginPath();
-      ctx.moveTo(x1, y);
-      ctx.lineTo(x2, y);
+      let x = xCoord(first.start);
+      ctx.moveTo(x, y);
+      x = xCoord(first.end);
+      ctx.lineTo(x, y);
+      for(let i=1;i<segs.length;i++){
+        const seg = segs[i];
+        const nx = xCoord(seg.start);
+        const ny = yCoord(seg.status || seg.s || 'OFF');
+        ctx.lineTo(nx, y);   // horizontal to boundary
+        if(ny !== null){
+          ctx.lineTo(nx, ny);  // vertical status change
+          ctx.lineTo(xCoord(seg.end), ny); // horizontal for segment
+          y = ny;
+        }
+      }
       ctx.stroke();
-    });
+    }
 
     ctx.restore();
   },
