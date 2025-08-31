@@ -42,6 +42,7 @@ const TrailerPriceRanges = {
 /* ---------- UI ---------- */
 export const UI = {
   _hosDayOffset: 0,
+  _hirePage: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
 overlay(sel) {
@@ -235,7 +236,8 @@ overlay(sel) {
       const hireDlg = content.querySelector('#dlgHireDriver');
       const btnHire = content.querySelector('#btnHireDriver');
       if (btnHire && hireDlg){
-        btnHire.addEventListener('click', ()=>{ UI._renderHireDriverList(); hireDlg.showModal(); });
+
+        btnHire.addEventListener('click', ()=>{ UI._hirePage=0; UI._renderHireDriverList(); hireDlg.showModal(); });
         const closeBtn = hireDlg.querySelector('#btnCloseHire');
         if(closeBtn) closeBtn.addEventListener('click', ()=>hireDlg.close());
         const listEl = hireDlg.querySelector('#hireList');
@@ -334,14 +336,38 @@ overlay(sel) {
   _renderHireDriverList(){
     const list = document.getElementById('hireList');
     if(!list) return;
-    const html = Game.hireableDrivers.map(h => `
+    const perPage = 10;
+    const total = Game.hireableDrivers.length;
+    const pages = Math.ceil(total/perPage);
+    if(UI._hirePage >= pages) UI._hirePage = Math.max(0, pages-1);
+    const start = UI._hirePage*perPage;
+    const slice = Game.hireableDrivers.slice(start, start+perPage);
+    const html = slice.map(h => `
+
       <div class="driver-item">
         <div class="driver-name">${h.firstName} ${h.lastName}</div>
         <div class="driver-sub">Age: ${h.age} • ${h.gender} • Exp: ${h.experience} yrs</div>
         <button class="btn" data-id="${h.id}">Hire</button>
       </div>
     `).join('');
-    list.innerHTML = html || '<div class="hint">No drivers available.</div>';
+    const pager = pages>1 ? `
+      <div class="row" style="margin-top:8px; justify-content:space-between;">
+        <button id="hirePrev" class="btn">Prev</button>
+        <span>Page ${UI._hirePage+1} / ${pages}</span>
+        <button id="hireNext" class="btn">Next</button>
+      </div>` : '';
+    list.innerHTML = (html || '<div class="hint">No drivers available.</div>') + pager;
+    const btnPrev = document.getElementById('hirePrev');
+    const btnNext = document.getElementById('hireNext');
+    if(btnPrev){
+      btnPrev.disabled = UI._hirePage === 0;
+      btnPrev.addEventListener('click', ()=>{ UI._hirePage = Math.max(0, UI._hirePage-1); UI._renderHireDriverList(); });
+    }
+    if(btnNext){
+      btnNext.disabled = UI._hirePage >= pages-1;
+      btnNext.addEventListener('click', ()=>{ UI._hirePage = Math.min(pages-1, UI._hirePage+1); UI._renderHireDriverList(); });
+    }
+
   },
 
   _companyRenderDriverList(){
@@ -673,15 +699,11 @@ export const Game = {
     UI.updateTimeHUD();
     if (this._hudLoop) clearInterval(this._hudLoop); this._hudLoop = setInterval(()=>UI.updateTimeHUD(), 500);
   },
-  generateHireDrivers(count=5){
-    const pool = DriverProfiles.slice();
-    this.hireableDrivers = [];
-    for (let i = 0; i < count && pool.length; i++) {
-      const idx = Math.floor(Math.random() * pool.length);
-      const cand = { ...pool.splice(idx, 1)[0] };
-      cand.id = crypto.randomUUID();
-      this.hireableDrivers.push(cand);
-    }
+
+  generateHireDrivers(){
+    this.hireableDrivers = DriverProfiles.map(p=>({ ...p, id: crypto.randomUUID() }));
+
+
   },
   addDriver(name, city) {
     const color = Colors[this.drivers.length % Colors.length];
