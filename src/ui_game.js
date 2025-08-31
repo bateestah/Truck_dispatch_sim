@@ -67,6 +67,25 @@ overlay(sel) {
 
     this.refreshAll();
   },
+  initStartMenu(){
+    const dlg=document.getElementById('dlgStart');
+    if(!dlg){ Game.init(); return; }
+    const sel=dlg.querySelector('#selHQ');
+    if(sel) fillCitySelectGrouped(sel);
+    dlg.showModal();
+    const btn=dlg.querySelector('#btnStartGame');
+    if(btn){
+      btn.addEventListener('click',()=>{
+        const name=(dlg.querySelector('#txtCompanyName').value||'').trim()||'My Company';
+        const city=cityByName(sel.value);
+        Game.companyName=name;
+        Game.setHQ(city);
+        dlg.close();
+        Game.init();
+        UI.refreshCompany();
+      });
+    }
+  },
   initOverridesUI(){
     const selO=document.getElementById('ovrOrigin'), selD=document.getElementById('ovrDest');
     const btnToggle=document.getElementById('btnToggleCompleted');
@@ -185,6 +204,8 @@ overlay(sel) {
   refreshCompany(){
     const panel = document.getElementById('panelCompany');
     if (!panel) return;
+    const hdr=panel.querySelector('header > div:first-child');
+    if(hdr) hdr.textContent=Game.companyName||'Company';
     const content = panel.querySelector('.content');
     if (!content) return;
 
@@ -660,6 +681,9 @@ export const Game = {
   loads: [],
   cashFlow: [],
   loans: [],
+  companyName: '',
+  hqCity: null,
+  hqMarker: null,
   // --- Simulation Time (starts Jan 1, 2020) ---
   simEpoch: new Date(2020, 0, 1, 0, 0, 0), // Jan 1, 2020
   _simElapsedMs: 0,
@@ -683,6 +707,13 @@ export const Game = {
     this.cashFlow.push({time:this.getSimNow().getTime(), amount, desc});
     UI.refreshCompany();
     UI.refreshBank();
+  },
+
+  setHQ(city){
+    this.hqCity = city;
+    if(this.hqMarker){ this.hqMarker.remove(); }
+    const icon = L.divIcon({ className: 'hq-icon', iconSize:[12,12] });
+    this.hqMarker = L.marker([city.lat, city.lng], { icon }).addTo(map);
   },
 
   tickMs: 1000,

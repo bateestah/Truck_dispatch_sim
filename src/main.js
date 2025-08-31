@@ -5,4 +5,4 @@ window.UI = UI;
 window.Game = Game;
 
 UI.init();
-Game.init();
+UI.initStartMenu();
