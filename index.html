@@ -119,6 +119,18 @@
       <button onclick="UI.openLoadBoard()">Load Board</button>
       <button id="btnDevTools" onclick="UI.toggleDevTools()">Show Dev Tools</button>
     </div>
+
+    <!-- Pause Menu -->
+    <div id="pauseMenu" class="pause-menu">
+      <div class="pause-box">
+        <h2>Paused</h2>
+        <button id="btnResume" class="btn">Resume</button>
+        <button id="btnSaveGame" class="btn">Save Game</button>
+        <button id="btnLoadGame" class="btn">Load Game</button>
+        <button id="btnNewGame" class="btn">Start New Game</button>
+        <input id="fileLoadGame" class="file-input" type="file" accept="application/json"/>
+      </div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
