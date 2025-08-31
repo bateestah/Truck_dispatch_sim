@@ -14,6 +14,24 @@
 
     <div class="legend" id="legend"></div>
 
+    <!-- Start Menu -->
+    <dialog id="dlgStart" class="modal">
+      <div class="form">
+        <h3>Start Company</h3>
+        <div class="grid" style="gap:8px;">
+          <label>Company Name
+            <input id="txtCompanyName" type="text" />
+          </label>
+          <label>Headquarters
+            <select id="selHQ"></select>
+          </label>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="btnStartGame" class="btn">Start</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- Draw & Save controls -->
     <div class="drawbar">
       <span class="lbl">Manual Route for</span>
