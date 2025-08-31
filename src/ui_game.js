@@ -3,6 +3,7 @@ import { Driver } from './driver.js';
 import { Router } from './router.js';
 import { fmtETA } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
+import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
 import { OverrideStore } from './store.js';
 import { initLoadBoard, openLoadBoard } from './load_board.js';
@@ -204,7 +205,7 @@ overlay(sel) {
             </div>
 
             <div class="row" style="margin-top:8px; gap:8px;">
-              <button id="btnAddDriver" class="btn">Add Driver</button>
+              <button id="btnHireDriver" class="btn">Hire Driver</button>
               <input id="txtDriverSearch" type="text" placeholder="Search drivers..." />
             </div>
             <div class="row" style="margin-top:8px; gap:8px;">
@@ -222,59 +223,31 @@ overlay(sel) {
           </div>
         </div>
 
-        <dialog id="dlgAddDriver" class="modal">
-          <form method="dialog" class="form">
-            <h3>New Driver</h3>
-            <div class="grid cols-2">
-              <label>First Name<input name="firstName" required/></label>
-              <label>Last Name<input name="lastName" required/></label>
-            </div>
-            <label>Home City
-              <input name="cityName" list="citiesList" placeholder="e.g., Chicago, IL" required/>
-            </label>
-            <div class="grid cols-3">
-              <label>Truck Make<input name="truckMake"/></label>
-              <label>Model<input name="truckModel"/></label>
-              <label>#<input name="truckNumber"/></label>
-            </div>
-            <menu style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
-              <button value="cancel" class="btn">Cancel</button>
-              <button id="btnCreateDriver" value="default" class="btn">Create</button>
-            </menu>
-          </form>
+        <dialog id="dlgHireDriver" class="modal" style="padding:16px; position:relative;">
+          <div id="btnCloseHire" class="close-x" style="position:absolute; top:8px; right:8px;">✕</div>
+          <h3>Hire Driver</h3>
+          <div id="hireList" class="drivers-list"></div>
         </dialog>
-        <datalist id="citiesList"></datalist>
       `;
       const bankStat = content.querySelector('#statBank');
       if (bankStat) bankStat.addEventListener('click', ()=>UI.show('#panelBank'));
 
-      const list = content.querySelector('#citiesList');
-      if(list && CityGroups){
-        const names = (CityGroups||[]).flatMap(g=>g.items).slice(0, 500).map(c=>c.name);
-        names.forEach(n => { const o=document.createElement('option'); o.value=n; list.appendChild(o); });
-      }
-
-      const dlg = content.querySelector('#dlgAddDriver');
-      const btnAdd = content.querySelector('#btnAddDriver');
-      if (btnAdd && dlg){
-        btnAdd.addEventListener('click', ()=>dlg.showModal());
-        dlg.querySelector('#btnCreateDriver').addEventListener('click', (ev)=>{
-  ev.preventDefault();
-  const form = dlg.querySelector('form');
-  const data = Object.fromEntries(new FormData(form).entries());
-  try {
-    const first=(data.firstName||'').trim();
-    const last=(data.lastName||'').trim();
-    const fullName=(first+' '+last).trim();
-    const city = cityByName((data.cityName||'').trim());
-    Game.addDriver(fullName, city);
-    const d = Game.drivers[Game.drivers.length-1];
-    if (d){ d.truckMake=(data.truckMake||'').trim(); d.truckModel=(data.truckModel||'').trim(); d.truckNumber=(data.truckNumber||'').trim(); d.cityName=city.name; }
-    dlg.close();
-    UI._companyNeedsListRefresh = true;
-    UI.refreshCompany();
-  } catch(err){ alert(err.message || err); }
-});
+      const hireDlg = content.querySelector('#dlgHireDriver');
+      const btnHire = content.querySelector('#btnHireDriver');
+      if (btnHire && hireDlg){
+        btnHire.addEventListener('click', ()=>{ UI._renderHireDriverList(); hireDlg.showModal(); });
+        const closeBtn = hireDlg.querySelector('#btnCloseHire');
+        if(closeBtn) closeBtn.addEventListener('click', ()=>hireDlg.close());
+        const listEl = hireDlg.querySelector('#hireList');
+        if(listEl){
+          listEl.addEventListener('click', (e)=>{
+            const btn = e.target.closest('button[data-id]');
+            if(!btn) return;
+            const id = btn.getAttribute('data-id');
+            Game.hireDriver(id);
+            UI._renderHireDriverList();
+          });
+        }
       }
 
       const btnEquip = content.querySelector('#btnShowEquipment');
@@ -356,6 +329,19 @@ overlay(sel) {
       const start = Math.max(0, hr-1);
       return [{start:0, end:start, status:'SB'}, {start, end:hr, status:base}];
     }catch(e){ return []; }
+  },
+
+  _renderHireDriverList(){
+    const list = document.getElementById('hireList');
+    if(!list) return;
+    const html = Game.hireableDrivers.map(h => `
+      <div class="driver-item">
+        <div class="driver-name">${h.firstName} ${h.lastName}</div>
+        <div class="driver-sub">Age: ${h.age} • ${h.gender} • Exp: ${h.experience} yrs</div>
+        <button class="btn" data-id="${h.id}">Hire</button>
+      </div>
+    `).join('');
+    list.innerHTML = html || '<div class="hint">No drivers available.</div>';
   },
 
   _companyRenderDriverList(){
@@ -642,6 +628,7 @@ export const Game = {
   overheadPerTruck: 50,
   overheadPerProperty: 200,
   drivers: [],
+  hireableDrivers: [],
   equipment: [],
   properties: [],
   loads: [],
@@ -674,6 +661,7 @@ export const Game = {
 
   tickMs: 1000,
   init() {
+    this.generateHireDrivers();
     this.addDriver('Alice', cityByName('Chicago, IL'));
     this.addDriver('Ben',   cityByName('Dallas, TX'));
     this.addDriver('Cara',  cityByName('Atlanta, GA'));
@@ -685,6 +673,16 @@ export const Game = {
     UI.updateTimeHUD();
     if (this._hudLoop) clearInterval(this._hudLoop); this._hudLoop = setInterval(()=>UI.updateTimeHUD(), 500);
   },
+  generateHireDrivers(count=5){
+    const pool = DriverProfiles.slice();
+    this.hireableDrivers = [];
+    for (let i = 0; i < count && pool.length; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      const cand = { ...pool.splice(idx, 1)[0] };
+      cand.id = crypto.randomUUID();
+      this.hireableDrivers.push(cand);
+    }
+  },
   addDriver(name, city) {
     const color = Colors[this.drivers.length % Colors.length];
     const driver = new Driver(name, city.lat, city.lng, color);
@@ -692,6 +690,29 @@ export const Game = {
     driver.render();
     UI.updateLegend();
     document.dispatchEvent(new CustomEvent('driversUpdated'));
+  },
+  hireDriver(id){
+    const cand = this.hireableDrivers.find(c=>String(c.id)===String(id));
+    if(!cand) return;
+    const city = cityByName('Chicago, IL');
+    const color = Colors[this.drivers.length % Colors.length];
+    const driver = new Driver({
+      firstName: cand.firstName,
+      lastName: cand.lastName,
+      age: cand.age,
+      gender: cand.gender,
+      experience: cand.experience,
+      lat: city.lat,
+      lng: city.lng,
+      color,
+      cityName: city.name
+    });
+    this.drivers.push(driver);
+    driver.render();
+    this.hireableDrivers = this.hireableDrivers.filter(c=>String(c.id)!==String(id));
+    UI.updateLegend();
+    document.dispatchEvent(new CustomEvent('driversUpdated'));
+    UI.refreshCompany();
   },
   buyEquipment(type, model, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
