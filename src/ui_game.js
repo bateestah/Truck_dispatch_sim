@@ -247,13 +247,31 @@ export const UI = {
     html += `
       <h3 style="margin-top:14px;">Buy Property</h3>
       <div class="grid cols-3">
-        <div class="stat"><div class="small">Small Yard – Dallas</div><div class="row"><div class="pill">$350,000</div><button class="btn" onclick="Game.buyProperty('Dallas Yard','Dallas, TX',350000)">Buy</button></div></div>
-        <div class="stat"><div class="small">Warehouse – Chicago</div><div class="row"><div class="pill">$1,200,000</div><button class="btn" onclick="Game.buyProperty('Chicago Warehouse','Chicago, IL',1200000)">Buy</button></div></div>
+        <div class="stat">
+          <div class="small">Buy Small Yard</div>
+          <div class="field"><select id="selSmallYardCity"></select></div>
+          <div class="row"><div class="pill">$75,000</div><button class="btn" onclick="Game.buyProperty('Small Yard', document.getElementById('selSmallYardCity').value, 75000)">Buy</button></div>
+        </div>
+        <div class="stat">
+          <div class="small">Buy Large Yard</div>
+          <div class="field"><select id="selLargeYardCity"></select></div>
+          <div class="row"><div class="pill">$500,000</div><button class="btn" onclick="Game.buyProperty('Large Yard', document.getElementById('selLargeYardCity').value, 500000)">Buy</button></div>
+        </div>
+        <div class="stat">
+          <div class="small">Buy Warehouse</div>
+          <div class="field"><select id="selWarehouseCity"></select></div>
+          <div class="row"><div class="pill">$100,000</div><button class="btn" onclick="Game.buyProperty('Warehouse', document.getElementById('selWarehouseCity').value, 100000)">Buy</button></div>
+        </div>
       </div>
       <div class="hint">Overhead increases per owned truck ($50/day) and per property ($200/day).</div>
     `;
 
     content.innerHTML = html;
+
+    // populate city selects for property purchases
+    fillCitySelectGrouped(document.getElementById('selSmallYardCity'));
+    fillCitySelectGrouped(document.getElementById('selLargeYardCity'));
+    fillCitySelectGrouped(document.getElementById('selWarehouseCity'));
   },
 
   refreshCompany(){
@@ -680,8 +698,9 @@ export const UI = {
   refreshProperties(){
     const panel=document.getElementById('panelProperties'); if(!panel) return;
     const content=panel.querySelector('.content'); if(!content) return;
-    const html = Game.properties.map(p=>`<div class="stat"><div class="small">${p.name}</div><div>${p.city}</div></div>`).join('');
+    const html = Game.properties.map(p=>`<div class="stat"><div class="small">${p.type}</div><div>${p.city}</div></div>`).join('');
     content.innerHTML = html || '<div class="hint">No properties owned.</div>';
+    Game.renderPropertyMarkers();
   },
 
   _loanScheduleHtml(loan){
@@ -752,6 +771,7 @@ export const Game = {
   hireableDrivers: [],
   equipment: [],
   properties: [],
+  propertyMarkers: [],
   loads: [],
   cashFlow: [],
   loans: [],
@@ -801,6 +821,33 @@ export const Game = {
       icon:L.divIcon({className:'hq-marker', iconSize:[px,px], iconAnchor:[px/2,px/2]})
     });
     this.hqMarker.addTo(map);
+  },
+
+  renderPropertyMarkers(){
+    for(const m of this.propertyMarkers){
+      try{ map.removeLayer(m); }catch(e){}
+    }
+    this.propertyMarkers=[];
+    const px=12;
+    for(const p of this.properties){
+      if(p.lat==null || p.lng==null){
+        const c=cityByName(p.city);
+        if(c){
+          p.lat=c.lat + (Math.random()-0.5)*0.2;
+          p.lng=c.lng + (Math.random()-0.5)*0.2;
+        }
+      }
+      let cls='';
+      if(p.type==='Small Yard') cls='prop-marker-small';
+      else if(p.type==='Large Yard') cls='prop-marker-large';
+      else cls='prop-marker-warehouse';
+      const marker=L.marker([p.lat,p.lng],{
+        interactive:false,
+        icon:L.divIcon({className:cls,iconSize:[px,px],iconAnchor:[px/2,px/2]})
+      });
+      marker.addTo(map);
+      this.propertyMarkers.push(marker);
+    }
   },
 
   _serializeDriver(d){
@@ -863,6 +910,7 @@ export const Game = {
     this.bank=obj.bank||0;
     this.equipment=obj.equipment||[];
     this.properties=obj.properties||[];
+    this.renderPropertyMarkers();
     this.loads=obj.loads||[];
     this.cashFlow=obj.cashFlow||[];
     this.loans=obj.loans||[];
@@ -979,10 +1027,20 @@ export const Game = {
     this.addCash(-cost, `Bought ${model}`);
     UI.refreshEquipment();
   },
-  buyProperty(name, city, cost) {
+  buyProperty(type, cityName, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
-    this.properties.push({name, city});
-    this.addCash(-cost, `Bought ${name}`);
+    if (!cityName) { alert('Select a city'); return; }
+    if (this.properties.some(p => p.city === cityName && p.type === type)) {
+      alert('Already owned in this city');
+      return;
+    }
+    const city = cityByName(cityName);
+    if (!city) { alert('City not found'); return; }
+    const lat = city.lat + (Math.random() - 0.5) * 0.2;
+    const lng = city.lng + (Math.random() - 0.5) * 0.2;
+    this.properties.push({ type, city: cityName, lat, lng });
+    this.addCash(-cost, `Bought ${type} in ${cityName}`);
+    this.renderPropertyMarkers();
     UI.refreshProperties();
   },
 
