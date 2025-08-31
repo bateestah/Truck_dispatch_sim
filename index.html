@@ -31,7 +31,7 @@
     </div>
 
     <!-- Draw & Save controls -->
-    <div class="drawbar">
+    <div class="drawbar" style="display:none;">
       <span class="lbl">Manual Route for</span>
       <select id="ovrOrigin"></select>
       <span>→</span>
@@ -117,6 +117,7 @@
       <button onclick="UI.show('#panelCompany')">Company</button>
       <button onclick="UI.show('#panelMarket')">Market</button>
       <button onclick="UI.openLoadBoard()">Load Board</button>
+      <button id="btnDevTools" onclick="UI.toggleDevTools()">Show Dev Tools</button>
     </div>
   </div>
 
