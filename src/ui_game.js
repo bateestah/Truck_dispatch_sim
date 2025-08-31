@@ -264,7 +264,10 @@ export const UI = {
             const btn = e.target.closest('button[data-id]');
             if(!btn) return;
             const id = btn.getAttribute('data-id');
-            Game.hireDriver(id);
+            const item = btn.closest('.driver-item');
+            const sel = item && item.querySelector('select');
+            const cityName = sel ? sel.value : undefined;
+            Game.hireDriver(id, cityName);
             UI._renderHireDriverList();
           });
         }
@@ -369,11 +372,16 @@ export const UI = {
     if(UI._hirePage >= pages) UI._hirePage = Math.max(0, pages-1);
     const start = UI._hirePage*perPage;
     const slice = Game.hireableDrivers.slice(start, start+perPage);
+    const locations = [];
+    if(Game.hqCity) locations.push(Game.hqCity.name);
+    for(const p of Game.properties){ locations.push(p.city); }
+    const showLocation = locations.length > 1;
     const html = slice.map(h => `
 
       <div class="driver-item">
         <div class="driver-name">${h.firstName} ${h.lastName}</div>
         <div class="driver-sub">Age: ${h.age} • ${h.gender} • Exp: ${h.experience} yrs</div>
+        ${showLocation ? `<select class="hire-location">${locations.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>` : ''}
         <button class="btn" data-id="${h.id}">Hire</button>
       </div>
     `).join('');
@@ -774,10 +782,17 @@ export const Game = {
     UI.updateLegend();
     document.dispatchEvent(new CustomEvent('driversUpdated'));
   },
-  hireDriver(id){
+  hireDriver(id, cityName){
     const cand = this.hireableDrivers.find(c=>String(c.id)===String(id));
     if(!cand) return;
-    const city = cityByName('Chicago, IL');
+    // Determine starting city: chosen city or HQ
+    let city = this.hqCity;
+    if(cityName){
+      const chosen = cityByName(cityName);
+      if(chosen) city = chosen;
+    }
+    // Fallback to Chicago if no HQ is set (shouldn't happen)
+    if(!city) city = cityByName('Chicago, IL');
     const color = Colors[this.drivers.length % Colors.length];
     const driver = new Driver({
       firstName: cand.firstName,
