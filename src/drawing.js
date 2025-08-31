@@ -7,6 +7,9 @@ export const drawControl = new L.Control.Draw({
   draw: { polyline: { shapeOptions: { color: '#00e5ff', weight: 4 } }, polygon:false, rectangle:false, circle:false, marker:false, circlemarker:false }
 });
 map.addControl(drawControl);
+if (drawControl && drawControl._container) {
+  drawControl._container.style.display = 'none';
+}
 
 export function clearNonOverrideDrawings(){ drawnItems.eachLayer(l => drawnItems.removeLayer(l)); }
 export function currentDrawnPolylineLatLngs(){ let latlngs=null; drawnItems.eachLayer(l => { if (l instanceof L.Polyline) latlngs = l.getLatLngs(); }); return latlngs; }

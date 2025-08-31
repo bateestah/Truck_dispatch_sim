@@ -70,6 +70,16 @@ export const UI = {
       };
     }
   },
+  toggleDevTools(){
+    const bar = document.querySelector('.drawbar');
+    const ctrl = drawControl && drawControl._container;
+    const hidden = bar ? (bar.style.display==='none' || getComputedStyle(bar).display==='none')
+                       : (ctrl ? (ctrl.style.display==='none' || getComputedStyle(ctrl).display==='none') : true);
+    if(bar) bar.style.display = hidden ? 'flex' : 'none';
+    if(ctrl) ctrl.style.display = hidden ? 'block' : 'none';
+    const btn = document.getElementById('btnDevTools');
+    if(btn) btn.textContent = hidden ? 'Hide Dev Tools' : 'Show Dev Tools';
+  },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
     ['panelCompany','panelMarket','panelBank','panelEquipment','panelProperties'].forEach(id=>makeDraggable(document.getElementById(id)));
