@@ -12,7 +12,8 @@ export class Driver {
   constructor(arg1, lat, lng, color) {
     if (typeof arg1 === 'object' && arg1 !== null) {
       const d = arg1;
-      this.id = _driverIdCounter++;
+      this.id = (typeof d.id === 'number') ? d.id : _driverIdCounter++;
+      if (typeof d.id === 'number' && d.id >= _driverIdCounter) _driverIdCounter = d.id + 1;
       this.firstName = d.firstName || '';
       this.lastName = d.lastName || '';
       this.age = d.age || 0;
@@ -199,4 +200,8 @@ export class Driver {
       setTimeout(()=>{ try{ map.removeLayer(oldLine); }catch(e){} }, 4000);
     }
   }
+}
+
+export function setDriverIdCounter(n){
+  if (typeof n === 'number' && n > 0) _driverIdCounter = n;
 }

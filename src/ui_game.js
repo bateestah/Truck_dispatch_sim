@@ -1,5 +1,5 @@
 import { Colors } from './colors.js';
-import { Driver } from './driver.js';
+import { Driver, setDriverIdCounter } from './driver.js';
 import { Router } from './router.js';
 import { fmtETA } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
@@ -43,6 +43,7 @@ const TrailerPriceRanges = {
 export const UI = {
   _hosDayOffset: 0,
   _hirePage: 0,
+  _prevSpeed: 1,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
   overlay(sel) {
@@ -93,6 +94,24 @@ export const UI = {
     window.UI.openLoadBoard = openLoadBoard;
 
     this.refreshAll();
+
+    const pmSave=document.getElementById('pmSave'); if(pmSave) pmSave.onclick=()=>Game.saveToFile();
+    const pmLoad=document.getElementById('pmLoadInput'); if(pmLoad) pmLoad.addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ Game.importSave(r.result); UI.togglePauseMenu(); }catch(err){ alert('Load failed: '+err.message); } }; r.readAsText(f); e.target.value=''; });
+    const pmNew=document.getElementById('pmNew'); if(pmNew) pmNew.onclick=()=>Game.newGame();
+    const pmResume=document.getElementById('pmResume'); if(pmResume) pmResume.onclick=()=>UI.togglePauseMenu();
+    document.addEventListener('keydown',e=>{ if(e.code==='Space' && !e.target.matches('input,textarea,select')){ e.preventDefault(); UI.togglePauseMenu(); } });
+  },
+  togglePauseMenu(){
+    const overlay=document.getElementById('pauseMenu'); if(!overlay) return;
+    const show = overlay.style.display!== 'flex';
+    if(show){
+      UI._prevSpeed = Game.speed;
+      overlay.style.display='flex';
+      Game.pause();
+    } else {
+      overlay.style.display='none';
+      Game.resume(UI._prevSpeed||1);
+    }
   },
   initOverridesUI(){
     const selO=document.getElementById('ovrOrigin'), selD=document.getElementById('ovrDest');
@@ -716,7 +735,7 @@ export const Game = {
   paused: false,
   _realWhenPaused: null,
   getSimNow(){ return new Date(this.simEpoch.getTime() + this._simElapsedMs); },
-  pause(){ this.paused = true; },
+  pause(){ this.paused = true; this._realWhenPaused = performance.now(); },
   resume(mult=1){
     if(this.paused){
       const pausedDur = performance.now() - (this._realWhenPaused||performance.now());
@@ -754,6 +773,99 @@ export const Game = {
       icon:L.divIcon({className:'hq-marker', iconSize:[px,px], iconAnchor:[px/2,px/2]})
     });
     this.hqMarker.addTo(map);
+  },
+
+  reset(){
+    for(const d of this.drivers){
+      try{ if(d.marker) map.removeLayer(d.marker); }catch(e){}
+      try{ if(d.routeLine) map.removeLayer(d.routeLine); }catch(e){}
+    }
+    this.drivers=[];
+    this.hireableDrivers=[];
+    this.equipment=[];
+    this.properties=[];
+    this.loads=[];
+    this.cashFlow=[];
+    this.loans=[];
+    this.bank=0;
+    this.companyName='';
+    this.hqCity=null;
+    this.hqMarker=null;
+    this._simElapsedMs=0;
+  },
+  saveState(){
+    return {
+      companyName:this.companyName,
+      hqCityName:this.hqCity?this.hqCity.name:null,
+      bank:this.bank,
+      drivers:this.drivers.map(d=>({
+        id:d.id, firstName:d.firstName, lastName:d.lastName, age:d.age, gender:d.gender,
+        experience:d.experience, color:d.color, lat:d.lat, lng:d.lng, cityName:d.cityName,
+        status:d.status, currentLoadId:d.currentLoadId, truckMake:d.truckMake,
+        truckModel:d.truckModel, truckNumber:d.truckNumber, hos:d.hos, hosLog:d.hosLog,
+        path:d.path, cumMiles:d.cumMiles
+      })),
+      hireableDrivers:this.hireableDrivers,
+      equipment:this.equipment,
+      properties:this.properties,
+      loads:this.loads,
+      cashFlow:this.cashFlow,
+      loans:this.loans,
+      _simElapsedMs:this._simElapsedMs,
+      speed:this.speed
+    };
+  },
+  exportSave(){ return JSON.stringify(this.saveState(), null, 2); },
+  saveToFile(){
+    const data=this.exportSave();
+    const blob=new Blob([data],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='game_save.json'; a.click();
+    URL.revokeObjectURL(url);
+    try{ localStorage.setItem('savedGameV1', data); }catch(e){}
+  },
+  importSave(json){
+    const data=typeof json==='string'?JSON.parse(json):json;
+    this.reset();
+    this.companyName=data.companyName||'';
+    this.bank=data.bank||0;
+    this.hqCity=data.hqCityName?cityByName(data.hqCityName):null;
+    if(this.hqCity) this.renderHQ();
+    this._simElapsedMs=data._simElapsedMs||0;
+    this.speed=data.speed||2;
+    this.hireableDrivers=Array.isArray(data.hireableDrivers)?data.hireableDrivers:[];
+    const drivers=[]; let maxId=1;
+    if(Array.isArray(data.drivers)){
+      for(const d of data.drivers){
+        const driver=new Driver(d);
+        driver.id=d.id; driver.render(); driver.setPosition(d.lat,d.lng);
+        if(d.path){
+          driver.path=d.path; driver.cumMiles=d.cumMiles;
+          driver.routeLine=L.polyline(d.path,{color:driver.color,weight:3,opacity:0.9});
+          driver.routeLine.addTo(map);
+        }
+        drivers.push(driver);
+        if(d.id>maxId) maxId=d.id;
+      }
+    }
+    this.drivers=drivers;
+    setDriverIdCounter(maxId+1);
+    this.equipment=Array.isArray(data.equipment)?data.equipment:[];
+    this.properties=Array.isArray(data.properties)?data.properties:[];
+    this.loads=Array.isArray(data.loads)?data.loads:[];
+    this.cashFlow=Array.isArray(data.cashFlow)?data.cashFlow:[];
+    this.loans=Array.isArray(data.loans)?data.loans:[];
+    try{ localStorage.setItem('companyInfo', JSON.stringify({name:this.companyName, cityName:this.hqCity?this.hqCity.name:''})); }catch(e){}
+    UI.refreshAll();
+    UI.updateLegend();
+    document.dispatchEvent(new CustomEvent('driversUpdated'));
+    UI.updateTimeHUD();
+  },
+  newGame(){
+    if(confirm('Start a new game? This will erase current progress.')){
+      try{ localStorage.removeItem('savedGameV1'); localStorage.removeItem('companyInfo'); }catch(e){}
+      location.reload();
+    }
   },
 
   tickMs: 1000,
