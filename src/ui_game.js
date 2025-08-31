@@ -43,6 +43,7 @@ const TrailerPriceRanges = {
 export const UI = {
   _hosDayOffset: 0,
   _hirePage: 0,
+  legend:{ showHQ:true, showSmallYards:true, showLargeYards:true, showWarehouses:true },
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
   overlay(sel) {
@@ -732,8 +733,36 @@ export const UI = {
   },
   refreshTablesLive(){ try{ UI.updateCompanyLive && UI.updateCompanyLive(); }catch(e){} try{ this.refreshDispatch(); }catch(e){} },
   updateLegend(){
-    const el=document.getElementById('legend'); el.innerHTML='<div class="note">Drivers</div>';
-    for (const d of Game.drivers){ const span=document.createElement('span'); span.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}`; el.appendChild(span); }
+    const el=document.getElementById('legend');
+    if(!el) return;
+    el.innerHTML='';
+    const layers=document.createElement('div');
+    layers.className='legend-section';
+    layers.innerHTML=`<div class="legend-title">Layers</div>
+      <label><input type="checkbox" id="lg-hq" ${UI.legend.showHQ?'checked':''}><span class="hq-marker"></span>HQ</label>
+      <label><input type="checkbox" id="lg-prop-small" ${UI.legend.showSmallYards?'checked':''}><span class="prop-marker-small"></span>Small Yards</label>
+      <label><input type="checkbox" id="lg-prop-large" ${UI.legend.showLargeYards?'checked':''}><span class="prop-marker-large"></span>Large Yards</label>
+      <label><input type="checkbox" id="lg-prop-warehouse" ${UI.legend.showWarehouses?'checked':''}><span class="prop-marker-warehouse"></span>Warehouses</label>`;
+    el.appendChild(layers);
+    const dsec=document.createElement('div');
+    dsec.className='legend-section';
+    dsec.innerHTML='<div class="legend-title">Drivers</div><div id="legendDrivers" class="legend-drivers-list"></div>';
+    el.appendChild(dsec);
+    const list=dsec.querySelector('#legendDrivers');
+    for(const d of Game.drivers){
+      const item=document.createElement('label');
+      item.innerHTML=`<input type="checkbox" data-driver-id="${d.id}" ${d.visible!==false?'checked':''}><span class="dot" style="background:${d.color}"></span>${d.name}`;
+      list.appendChild(item);
+    }
+    const hqCb=el.querySelector('#lg-hq');
+    if(hqCb) hqCb.addEventListener('change',e=>{ UI.legend.showHQ=e.target.checked; if(Game.hqMarker){ e.target.checked?Game.hqMarker.addTo(map):map.removeLayer(Game.hqMarker); } });
+    const smallCb=el.querySelector('#lg-prop-small');
+    if(smallCb) smallCb.addEventListener('change',e=>{ UI.legend.showSmallYards=e.target.checked; for(const m of Game.propertyMarkers.small){ e.target.checked?m.addTo(map):map.removeLayer(m); } });
+    const largeCb=el.querySelector('#lg-prop-large');
+    if(largeCb) largeCb.addEventListener('change',e=>{ UI.legend.showLargeYards=e.target.checked; for(const m of Game.propertyMarkers.large){ e.target.checked?m.addTo(map):map.removeLayer(m); } });
+    const whCb=el.querySelector('#lg-prop-warehouse');
+    if(whCb) whCb.addEventListener('change',e=>{ UI.legend.showWarehouses=e.target.checked; for(const m of Game.propertyMarkers.warehouse){ e.target.checked?m.addTo(map):map.removeLayer(m); } });
+    list.querySelectorAll('input[data-driver-id]').forEach(cb=>cb.addEventListener('change',e=>{ const id=e.target.getAttribute('data-driver-id'); const d=Game.drivers.find(x=>String(x.id)===String(id)); if(d){ e.target.checked?d.showOnMap():d.hideFromMap(); } }));
   }
 };
 
@@ -771,7 +800,7 @@ export const Game = {
   hireableDrivers: [],
   equipment: [],
   properties: [],
-  propertyMarkers: [],
+  propertyMarkers: { small:[], large:[], warehouse:[] },
   loads: [],
   cashFlow: [],
   loans: [],
@@ -820,14 +849,14 @@ export const Game = {
       interactive:false,
       icon:L.divIcon({className:'hq-marker', iconSize:[px,px], iconAnchor:[px/2,px/2]})
     });
-    this.hqMarker.addTo(map);
+    if(UI.legend.showHQ) this.hqMarker.addTo(map);
   },
 
   renderPropertyMarkers(){
-    for(const m of this.propertyMarkers){
+    for(const m of [...this.propertyMarkers.small, ...this.propertyMarkers.large, ...this.propertyMarkers.warehouse]){
       try{ map.removeLayer(m); }catch(e){}
     }
-    this.propertyMarkers=[];
+    this.propertyMarkers={ small:[], large:[], warehouse:[] };
     const px=12;
     for(const p of this.properties){
       if(p.lat==null || p.lng==null){
@@ -837,16 +866,16 @@ export const Game = {
           p.lng=c.lng + (Math.random()-0.5)*0.2;
         }
       }
-      let cls='';
-      if(p.type==='Small Yard') cls='prop-marker-small';
-      else if(p.type==='Large Yard') cls='prop-marker-large';
-      else cls='prop-marker-warehouse';
+      let cls='', arr, show;
+      if(p.type==='Small Yard'){ cls='prop-marker-small'; arr=this.propertyMarkers.small; show=UI.legend.showSmallYards; }
+      else if(p.type==='Large Yard'){ cls='prop-marker-large'; arr=this.propertyMarkers.large; show=UI.legend.showLargeYards; }
+      else { cls='prop-marker-warehouse'; arr=this.propertyMarkers.warehouse; show=UI.legend.showWarehouses; }
       const marker=L.marker([p.lat,p.lng],{
         interactive:false,
         icon:L.divIcon({className:cls,iconSize:[px,px],iconAnchor:[px/2,px/2]})
       });
-      marker.addTo(map);
-      this.propertyMarkers.push(marker);
+      if(show) marker.addTo(map);
+      arr.push(marker);
     }
   },
 
