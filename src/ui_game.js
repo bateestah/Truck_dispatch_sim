@@ -3,6 +3,7 @@ import { Driver } from './driver.js';
 import { Router } from './router.js';
 import { fmtETA } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
+import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
 import { OverrideStore } from './store.js';
 import { initLoadBoard, openLoadBoard } from './load_board.js';
@@ -41,6 +42,7 @@ const TrailerPriceRanges = {
 /* ---------- UI ---------- */
 export const UI = {
   _hosDayOffset: 0,
+  _hirePage: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
 overlay(sel) {
@@ -204,7 +206,7 @@ overlay(sel) {
             </div>
 
             <div class="row" style="margin-top:8px; gap:8px;">
-              <button id="btnAddDriver" class="btn">Add Driver</button>
+              <button id="btnHireDriver" class="btn">Hire Driver</button>
               <input id="txtDriverSearch" type="text" placeholder="Search drivers..." />
             </div>
             <div class="row" style="margin-top:8px; gap:8px;">
@@ -222,59 +224,42 @@ overlay(sel) {
           </div>
         </div>
 
-        <dialog id="dlgAddDriver" class="modal">
-          <form method="dialog" class="form">
-            <h3>New Driver</h3>
-            <div class="grid cols-2">
-              <label>First Name<input name="firstName" required/></label>
-              <label>Last Name<input name="lastName" required/></label>
+          <dialog id="dlgHireDriver" class="modal" style="padding:16px; position:relative;">
+            <div id="btnCloseHire" class="close-x" style="position:absolute; top:8px; right:8px;">✕</div>
+            <h3>Hire Driver</h3>
+            <div id="hireList" class="drivers-list"></div>
+            <div class="row" id="hirePager" style="margin-top:8px; gap:8px; justify-content:space-between;">
+              <button id="hirePrev" class="btn">Prev</button>
+              <button id="hireNext" class="btn">Next</button>
             </div>
-            <label>Home City
-              <input name="cityName" list="citiesList" placeholder="e.g., Chicago, IL" required/>
-            </label>
-            <div class="grid cols-3">
-              <label>Truck Make<input name="truckMake"/></label>
-              <label>Model<input name="truckModel"/></label>
-              <label>#<input name="truckNumber"/></label>
-            </div>
-            <menu style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
-              <button value="cancel" class="btn">Cancel</button>
-              <button id="btnCreateDriver" value="default" class="btn">Create</button>
-            </menu>
-          </form>
-        </dialog>
-        <datalist id="citiesList"></datalist>
+          </dialog>
       `;
       const bankStat = content.querySelector('#statBank');
       if (bankStat) bankStat.addEventListener('click', ()=>UI.show('#panelBank'));
 
-      const list = content.querySelector('#citiesList');
-      if(list && CityGroups){
-        const names = (CityGroups||[]).flatMap(g=>g.items).slice(0, 500).map(c=>c.name);
-        names.forEach(n => { const o=document.createElement('option'); o.value=n; list.appendChild(o); });
-      }
-
-      const dlg = content.querySelector('#dlgAddDriver');
-      const btnAdd = content.querySelector('#btnAddDriver');
-      if (btnAdd && dlg){
-        btnAdd.addEventListener('click', ()=>dlg.showModal());
-        dlg.querySelector('#btnCreateDriver').addEventListener('click', (ev)=>{
-  ev.preventDefault();
-  const form = dlg.querySelector('form');
-  const data = Object.fromEntries(new FormData(form).entries());
-  try {
-    const first=(data.firstName||'').trim();
-    const last=(data.lastName||'').trim();
-    const fullName=(first+' '+last).trim();
-    const city = cityByName((data.cityName||'').trim());
-    Game.addDriver(fullName, city);
-    const d = Game.drivers[Game.drivers.length-1];
-    if (d){ d.truckMake=(data.truckMake||'').trim(); d.truckModel=(data.truckModel||'').trim(); d.truckNumber=(data.truckNumber||'').trim(); d.cityName=city.name; }
-    dlg.close();
-    UI._companyNeedsListRefresh = true;
-    UI.refreshCompany();
-  } catch(err){ alert(err.message || err); }
-});
+      const hireDlg = content.querySelector('#dlgHireDriver');
+      const btnHire = content.querySelector('#btnHireDriver');
+      if (btnHire && hireDlg){
+        btnHire.addEventListener('click', ()=>{ UI._hirePage=0; UI._renderHireDriverList(); hireDlg.showModal(); });
+        const closeBtn = hireDlg.querySelector('#btnCloseHire');
+        if(closeBtn) closeBtn.addEventListener('click', ()=>hireDlg.close());
+        const listEl = hireDlg.querySelector('#hireList');
+        if(listEl){
+          listEl.addEventListener('click', (e)=>{
+            const btn = e.target.closest('button[data-id]');
+            if(!btn) return;
+            const id = btn.getAttribute('data-id');
+            Game.hireDriver(id);
+            UI._renderHireDriverList();
+          });
+        }
+        const btnPrev = hireDlg.querySelector('#hirePrev');
+        const btnNext = hireDlg.querySelector('#hireNext');
+        if(btnPrev) btnPrev.addEventListener('click', ()=>{ if(UI._hirePage>0){ UI._hirePage--; UI._renderHireDriverList(); } });
+        if(btnNext) btnNext.addEventListener('click', ()=>{
+          const maxPage = Math.ceil(Game.hireableDrivers.length/10)-1;
+          if(UI._hirePage<maxPage){ UI._hirePage++; UI._renderHireDriverList(); }
+        });
       }
 
       const btnEquip = content.querySelector('#btnShowEquipment');
@@ -357,6 +342,28 @@ overlay(sel) {
       return [{start:0, end:start, status:'SB'}, {start, end:hr, status:base}];
     }catch(e){ return []; }
   },
+
+    _renderHireDriverList(){
+      const list = document.getElementById('hireList');
+      if(!list) return;
+      const pageSize = 10;
+      const maxPage = Math.max(0, Math.ceil(Game.hireableDrivers.length / pageSize) - 1);
+      if(UI._hirePage > maxPage) UI._hirePage = maxPage;
+      const start = UI._hirePage * pageSize;
+      const page = Game.hireableDrivers.slice(start, start + pageSize);
+      const html = page.map(h => `
+        <div class="driver-item">
+          <div class="driver-name">${h.firstName} ${h.lastName}</div>
+          <div class="driver-sub">Age: ${h.age} • ${h.gender} • Exp: ${h.experience} yrs</div>
+          <button class="btn" data-id="${h.id}">Hire</button>
+        </div>
+      `).join('');
+      list.innerHTML = html || '<div class="hint">No drivers available.</div>';
+      const btnPrev = document.getElementById('hirePrev');
+      const btnNext = document.getElementById('hireNext');
+      if(btnPrev) btnPrev.disabled = UI._hirePage <= 0;
+      if(btnNext) btnNext.disabled = UI._hirePage >= maxPage;
+    },
 
   _companyRenderDriverList(){
     const listEl = document.getElementById('driversList');
@@ -642,6 +649,7 @@ export const Game = {
   overheadPerTruck: 50,
   overheadPerProperty: 200,
   drivers: [],
+  hireableDrivers: [],
   equipment: [],
   properties: [],
   loads: [],
@@ -674,6 +682,7 @@ export const Game = {
 
   tickMs: 1000,
   init() {
+    this.generateHireDrivers();
     this.addDriver('Alice', cityByName('Chicago, IL'));
     this.addDriver('Ben',   cityByName('Dallas, TX'));
     this.addDriver('Cara',  cityByName('Atlanta, GA'));
@@ -685,6 +694,9 @@ export const Game = {
     UI.updateTimeHUD();
     if (this._hudLoop) clearInterval(this._hudLoop); this._hudLoop = setInterval(()=>UI.updateTimeHUD(), 500);
   },
+  generateHireDrivers(){
+    this.hireableDrivers = DriverProfiles.map(p => ({ ...p, id: crypto.randomUUID() }));
+  },
   addDriver(name, city) {
     const color = Colors[this.drivers.length % Colors.length];
     const driver = new Driver(name, city.lat, city.lng, color);
@@ -692,6 +704,29 @@ export const Game = {
     driver.render();
     UI.updateLegend();
     document.dispatchEvent(new CustomEvent('driversUpdated'));
+  },
+  hireDriver(id){
+    const cand = this.hireableDrivers.find(c=>String(c.id)===String(id));
+    if(!cand) return;
+    const city = cityByName('Chicago, IL');
+    const color = Colors[this.drivers.length % Colors.length];
+    const driver = new Driver({
+      firstName: cand.firstName,
+      lastName: cand.lastName,
+      age: cand.age,
+      gender: cand.gender,
+      experience: cand.experience,
+      lat: city.lat,
+      lng: city.lng,
+      color,
+      cityName: city.name
+    });
+    this.drivers.push(driver);
+    driver.render();
+    this.hireableDrivers = this.hireableDrivers.filter(c=>String(c.id)!==String(id));
+    UI.updateLegend();
+    document.dispatchEvent(new CustomEvent('driversUpdated'));
+    UI.refreshCompany();
   },
   buyEquipment(type, model, cost) {
     if (this.bank < cost) { alert('Insufficient funds.'); return; }
