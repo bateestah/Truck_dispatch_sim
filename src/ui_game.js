@@ -43,6 +43,8 @@ const TrailerPriceRanges = {
 export const UI = {
   _hosDayOffset: 0,
   _hirePage: 0,
+  _legendLayers: { properties:true, routes:true, overrides:true },
+  _legendDriverVisibility: {},
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
   overlay(sel) {
@@ -731,9 +733,57 @@ export const UI = {
     document.getElementById('statBank').textContent='$'+Game.bank.toLocaleString();
   },
   refreshTablesLive(){ try{ UI.updateCompanyLive && UI.updateCompanyLive(); }catch(e){} try{ this.refreshDispatch(); }catch(e){} },
+  _applyLegendVisibility(){
+    const layers=this._legendLayers;
+    const showProps=layers.properties!==false;
+    if(Game.hqMarker){ if(showProps) Game.hqMarker.addTo(map); else try{ map.removeLayer(Game.hqMarker); }catch(e){} }
+    if(Array.isArray(Game.propertyMarkers)){
+      for(const m of Game.propertyMarkers){ if(showProps) m.addTo(map); else try{ map.removeLayer(m); }catch(e){} }
+    }
+
+    for(const d of Game.drivers){
+      const showDrv=this._legendDriverVisibility[d.id]!==false;
+      if(showDrv) d.marker.addTo(map); else try{ map.removeLayer(d.marker); }catch(e){}
+      if(d.routeLine){
+        const showRoute=layers.routes!==false && showDrv;
+        if(showRoute) d.routeLine.addTo(map); else try{ map.removeLayer(d.routeLine); }catch(e){}
+      }
+    }
+
+    const showOvr=layers.overrides!==false;
+    try{
+      if(showOvr){ drawnItems.addTo(map); completedRoutesGroup.addTo(map); }
+      else { map.removeLayer(drawnItems); map.removeLayer(completedRoutesGroup); }
+    }catch(e){}
+  },
   updateLegend(){
-    const el=document.getElementById('legend'); el.innerHTML='<div class="note">Drivers</div>';
-    for (const d of Game.drivers){ const span=document.createElement('span'); span.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}`; el.appendChild(span); }
+    const el=document.getElementById('legend'); if(!el) return;
+    const layers=this._legendLayers;
+    let html=`<div class="legend-section"><div class="legend-title">Layers</div>
+      <label><input type="checkbox" id="lgProps"${layers.properties!==false?' checked':''}>Properties</label>
+      <label><input type="checkbox" id="lgRoutes"${layers.routes!==false?' checked':''}>Routes</label>
+      <label><input type="checkbox" id="lgOvr"${layers.overrides!==false?' checked':''}>Overrides</label>
+    </div>
+    <div class="legend-section"><div class="legend-title">Drivers</div><div class="legend-drivers" id="legendDriverList">`;
+    for(const d of Game.drivers){
+      const vis=this._legendDriverVisibility[d.id]!==false;
+      html+=`<label class="legend-driver"><input type="checkbox" data-id="${d.id}"${vis?' checked':''}><span class="dot" style="background:${d.color}"></span>${d.name}</label>`;
+    }
+    html+=`</div></div>`;
+    el.innerHTML=html;
+
+    const chkProps=document.getElementById('lgProps');
+    const chkRoutes=document.getElementById('lgRoutes');
+    const chkOvr=document.getElementById('lgOvr');
+    if(chkProps) chkProps.addEventListener('change',e=>{ this._legendLayers.properties=e.target.checked; this._applyLegendVisibility(); });
+    if(chkRoutes) chkRoutes.addEventListener('change',e=>{ this._legendLayers.routes=e.target.checked; this._applyLegendVisibility(); });
+    if(chkOvr) chkOvr.addEventListener('change',e=>{ this._legendLayers.overrides=e.target.checked; this._applyLegendVisibility(); });
+    el.querySelectorAll('.legend-driver input').forEach(cb=>cb.addEventListener('change',e=>{
+      const id=e.target.getAttribute('data-id');
+      this._legendDriverVisibility[id]=e.target.checked;
+      this._applyLegendVisibility();
+    }));
+    this._applyLegendVisibility();
   }
 };
 
@@ -821,6 +871,7 @@ export const Game = {
       icon:L.divIcon({className:'hq-marker', iconSize:[px,px], iconAnchor:[px/2,px/2]})
     });
     this.hqMarker.addTo(map);
+    try{ UI._applyLegendVisibility(); }catch(e){}
   },
 
   renderPropertyMarkers(){
@@ -848,6 +899,7 @@ export const Game = {
       marker.addTo(map);
       this.propertyMarkers.push(marker);
     }
+    try{ UI._applyLegendVisibility(); }catch(e){}
   },
 
   _serializeDriver(d){
@@ -935,6 +987,7 @@ export const Game = {
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
+          try{ UI._applyLegendVisibility(); }catch(e){}
         }
         this.drivers.push(drv);
       }
@@ -1115,6 +1168,7 @@ export const Game = {
       this.loads.push(deadheadLoad);
       d._pendingMainLeg = { route: mainRoute, mainMiles, etaMainMs, profit, originName, destName };
       d.startTripPolyline(deadheadRoute.path, deadheadLoad.id);
+      try{ UI._applyLegendVisibility(); }catch(e){}
     } else {
       const mainLoad = makeLoadRow({
         kind: 'Main',
@@ -1125,6 +1179,7 @@ export const Game = {
       });
       this.loads.push(mainLoad);
       d.startTripPolyline(mainRoute.path, mainLoad.id);
+      try{ UI._applyLegendVisibility(); }catch(e){}
     }
 
     // toast/UI refresh handled by board; we still refresh tables
@@ -1162,6 +1217,7 @@ export const Game = {
             this.loads.push(mainLoad);
             d._pendingMainLeg = null;
             d.startTripPolyline(route.path, mainLoad.id);
+            try{ UI._applyLegendVisibility(); }catch(e){}
             UI.refreshDispatch();
           } else {
             this.completeLoad(ld);
