@@ -310,6 +310,10 @@ bottom: 84px; z-index: 1200;}
 .pill{display:inline-block; padding:2px 6px; border-radius:999px; border:1px solid #31414b; font-size:12px; opacity:.9; margin-left:6px;}
 .row{display:flex; align-items:center;}
 .grid.cols-3{grid-template-columns: 1fr 1fr 1fr;}
+/* Hire Driver table */
+#dlgHireDriver table{width:100%; border-collapse:collapse;}
+#dlgHireDriver th,#dlgHireDriver td{padding:4px 8px; text-align:left;}
+#dlgHireDriver tbody tr:nth-child(even){background:#0f1418;}
 /* --- End Company Panel Rewrite --- */
 
 
