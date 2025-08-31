@@ -80,6 +80,52 @@ export const UI = {
     const btn = document.getElementById('btnDevTools');
     if(btn) btn.textContent = hidden ? 'Hide Dev Tools' : 'Show Dev Tools';
   },
+  _prePauseSpeed: 1,
+  togglePauseMenu(){
+    const menu = document.getElementById('pauseMenu');
+    if(!menu) return;
+    const show = menu.style.display !== 'flex';
+    if(show){
+      this._prePauseSpeed = Game.speed;
+      Game.pause();
+      menu.style.display='flex';
+    } else {
+      menu.style.display='none';
+      Game.resume(this._prePauseSpeed || 1);
+      UI.updateTimeHUD();
+      const mapSpeed={1:'btn1x',2:'btn2x',4:'btn4x'};
+      document.querySelectorAll('.time-controls button').forEach(b=>b.classList.remove('active'));
+      const id=mapSpeed[this._prePauseSpeed]||'btn1x';
+      const btn=document.getElementById(id); if(btn) btn.classList.add('active');
+    }
+  },
+  initPauseMenu(){
+    const resume=document.getElementById('btnResume');
+    const save=document.getElementById('btnSaveGame');
+    const load=document.getElementById('btnLoadGame');
+    const fresh=document.getElementById('btnNewGame');
+    const file=document.getElementById('fileLoadGame');
+    if(resume) resume.addEventListener('click', ()=>this.togglePauseMenu());
+    if(save) save.addEventListener('click', ()=>{ Game.export(); });
+    if(load) load.addEventListener('click', ()=>{ if(file) file.click(); });
+    if(fresh) fresh.addEventListener('click', ()=>{ if(confirm('Start a new game? Current progress will be lost.')) Game.newGame(); });
+    if(file) file.addEventListener('change', e=>{
+      const f=e.target.files[0]; if(!f) return;
+      const reader=new FileReader();
+      reader.onload=()=>{
+        try{ Game.import(reader.result); alert('Game loaded.'); this.togglePauseMenu(); }
+        catch(err){ alert('Load failed: '+err.message); }
+      };
+      reader.readAsText(f);
+      e.target.value='';
+    });
+    document.addEventListener('keydown', e=>{
+      if(e.code==='Space' && !['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)){
+        e.preventDefault();
+        this.togglePauseMenu();
+      }
+    });
+  },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
     ['panelCompany','panelMarket','panelBank','panelEquipment','panelProperties'].forEach(id=>makeDraggable(document.getElementById(id)));
@@ -92,6 +138,7 @@ export const UI = {
     initLoadBoard();
     window.UI.openLoadBoard = openLoadBoard;
 
+    this.initPauseMenu();
     this.refreshAll();
   },
   initOverridesUI(){
@@ -754,6 +801,110 @@ export const Game = {
       icon:L.divIcon({className:'hq-marker', iconSize:[px,px], iconAnchor:[px/2,px/2]})
     });
     this.hqMarker.addTo(map);
+  },
+
+  _serializeDriver(d){
+    return {
+      firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
+      color:d.color,lat:d.lat,lng:d.lng,cityName:d.cityName,status:d.status,currentLoadId:d.currentLoadId,
+      truckMake:d.truckMake,truckModel:d.truckModel,truckNumber:d.truckNumber,
+      path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
+      hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
+      hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
+      _pendingMainLeg:d._pendingMainLeg
+    };
+  },
+  serialize(){
+    return {
+      companyName:this.companyName,
+      hqCityName:this.hqCity?this.hqCity.name:null,
+      bank:this.bank,
+      drivers:this.drivers.map(d=>this._serializeDriver(d)),
+      equipment:this.equipment,
+      properties:this.properties,
+      loads:this.loads,
+      cashFlow:this.cashFlow,
+      loans:this.loans,
+      hireableDrivers:this.hireableDrivers,
+      simElapsedMs:this._simElapsedMs,
+      speed:this.speed
+    };
+  },
+  save(){
+    const data=this.serialize();
+    try{ localStorage.setItem('savedGameV1', JSON.stringify(data)); }catch(_){ }
+    return data;
+  },
+  export(){
+    const data=this.save();
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='game_save.json'; a.click();
+    URL.revokeObjectURL(url);
+  },
+  import(json){
+    const obj=JSON.parse(json);
+    this.load(obj);
+  },
+  load(obj){
+    try{ localStorage.setItem('savedGameV1', JSON.stringify(obj)); }catch(_){ }
+    // stop loops
+    if (this.loop) clearInterval(this.loop);
+    if (this.overheadLoop) clearInterval(this.overheadLoop);
+    if (this._hudLoop) clearInterval(this._hudLoop);
+    // remove existing drivers
+    for(const d of this.drivers){
+      try{ map.removeLayer(d.marker); }catch(e){}
+      if(d.routeLine){ try{ map.removeLayer(d.routeLine); }catch(e){} }
+    }
+    this.drivers=[];
+    this.companyName=obj.companyName||'';
+    this.hqCity=obj.hqCityName?cityByName(obj.hqCityName):null;
+    this.bank=obj.bank||0;
+    this.equipment=obj.equipment||[];
+    this.properties=obj.properties||[];
+    this.loads=obj.loads||[];
+    this.cashFlow=obj.cashFlow||[];
+    this.loans=obj.loans||[];
+    this.hireableDrivers=obj.hireableDrivers||[];
+    this._simElapsedMs=obj.simElapsedMs||0;
+    this.speed=obj.speed||1;
+    if(Array.isArray(obj.drivers)){
+      for(const dd of obj.drivers){
+        const drv=new Driver(dd);
+        drv.render();
+        drv.status=dd.status||'Idle';
+        drv.currentLoadId=dd.currentLoadId||null;
+        drv.hos=dd.hos||drv.hos;
+        drv.hosSegments=dd.hosSegments||[];
+        drv.hosDay=dd.hosDay||null;
+        drv.hosDutyStartMs=dd.hosDutyStartMs||null;
+        drv.hosDriveSinceReset=dd.hosDriveSinceReset||0;
+        drv.hosDriveSinceLastBreak=dd.hosDriveSinceLastBreak||0;
+        drv.hosOffStreak=dd.hosOffStreak||0;
+        drv.hosLog=dd.hosLog||[];
+        drv._pendingMainLeg=dd._pendingMainLeg||null;
+        if(drv.status==='On Trip' && Array.isArray(dd.path)){
+          drv.startTripPolyline(dd.path, dd.currentLoadId);
+          drv.cumMiles=dd.cumMiles;
+        }
+        this.drivers.push(drv);
+      }
+    }
+    this.renderHQ();
+    UI.refreshAll();
+    document.dispatchEvent(new CustomEvent('driversUpdated'));
+    // restart loops
+    this.loop = setInterval(()=>this.update(), this.tickMs);
+    this.overheadLoop = setInterval(()=>this.applyOverhead(), 60000);
+    UI._wireTimeButtons();
+    UI.updateTimeHUD();
+    this._hudLoop = setInterval(()=>UI.updateTimeHUD(), 500);
+  },
+  newGame(){
+    try{ localStorage.removeItem('savedGameV1'); }catch(_){ }
+    try{ localStorage.removeItem('companyInfo'); }catch(_){ }
+    location.reload();
   },
 
   tickMs: 1000,
