@@ -777,7 +777,19 @@ export const Game = {
   hireDriver(id){
     const cand = this.hireableDrivers.find(c=>String(c.id)===String(id));
     if(!cand) return;
-    const city = cityByName('Chicago, IL');
+
+    // Default new drivers to the HQ city; allow assigning to owned properties.
+    let city = this.hqCity || cityByName('Chicago, IL');
+    if (this.properties && this.properties.length){
+      const locations = [{ label: `HQ (${this.hqCity ? this.hqCity.name : 'Unknown'})`, city: this.hqCity }]
+        .concat(this.properties.map(p=>({ label: `${p.name} (${p.city.name})`, city: p.city })));
+      const msg = 'Assign driver to:\n' + locations.map((o,i)=>`${i+1}. ${o.label}`).join('\n');
+      const choice = prompt(msg, '1');
+      const idx = parseInt(choice, 10) - 1;
+      if (!Number.isNaN(idx) && idx >= 0 && idx < locations.length){
+        city = locations[idx].city || city;
+      }
+    }
     const color = Colors[this.drivers.length % Colors.length];
     const driver = new Driver({
       firstName: cand.firstName,
