@@ -236,6 +236,7 @@ overlay(sel) {
       const hireDlg = content.querySelector('#dlgHireDriver');
       const btnHire = content.querySelector('#btnHireDriver');
       if (btnHire && hireDlg){
+
         btnHire.addEventListener('click', ()=>{ UI._hirePage=0; UI._renderHireDriverList(); hireDlg.showModal(); });
         const closeBtn = hireDlg.querySelector('#btnCloseHire');
         if(closeBtn) closeBtn.addEventListener('click', ()=>hireDlg.close());
@@ -342,6 +343,7 @@ overlay(sel) {
     const start = UI._hirePage*perPage;
     const slice = Game.hireableDrivers.slice(start, start+perPage);
     const html = slice.map(h => `
+
       <div class="driver-item">
         <div class="driver-name">${h.firstName} ${h.lastName}</div>
         <div class="driver-sub">Age: ${h.age} • ${h.gender} • Exp: ${h.experience} yrs</div>
@@ -365,6 +367,7 @@ overlay(sel) {
       btnNext.disabled = UI._hirePage >= pages-1;
       btnNext.addEventListener('click', ()=>{ UI._hirePage = Math.min(pages-1, UI._hirePage+1); UI._renderHireDriverList(); });
     }
+
   },
 
   _companyRenderDriverList(){
@@ -696,8 +699,11 @@ export const Game = {
     UI.updateTimeHUD();
     if (this._hudLoop) clearInterval(this._hudLoop); this._hudLoop = setInterval(()=>UI.updateTimeHUD(), 500);
   },
+
   generateHireDrivers(){
     this.hireableDrivers = DriverProfiles.map(p=>({ ...p, id: crypto.randomUUID() }));
+
+
   },
   addDriver(name, city) {
     const color = Colors[this.drivers.length % Colors.length];
