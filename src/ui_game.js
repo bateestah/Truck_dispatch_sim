@@ -728,6 +728,7 @@ export const Game = {
   renderHQ(){
     if(this.hqMarker){ try{ map.removeLayer(this.hqMarker); }catch(e){} }
     if(!this.hqCity) return;
+
     const lat=this.hqCity.lat, lng=this.hqCity.lng;
     const px=12;
     this.hqMarker=L.marker([lat,lng],{
