@@ -346,3 +346,31 @@ bottom: 84px; z-index: 1200;}
   height: auto !important;
   overflow: visible !important;
 }
+
+/* Startup modal */
+#startupModal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.8);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+#startupModal .startup-box {
+  background: #0f1418;
+  border: 1px solid #2d3943;
+  border-radius: 10px;
+  padding: 20px;
+  width: 300px;
+  max-width: 90vw;
+}
+#startupModal .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
