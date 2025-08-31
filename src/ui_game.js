@@ -45,14 +45,31 @@ export const UI = {
   _hirePage: 0,
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
-overlay(sel) {
-  ['#panelEquipment', '#panelProperties'].forEach(p => {
-    const panel = document.querySelector(p);
-    if (panel) panel.style.display = (p === sel) ? 'block' : 'none';
-  });
-  if (sel === '#panelEquipment') { try { UI.refreshEquipment(); } catch (e) {} }
-  if (sel === '#panelProperties') { try { UI.refreshProperties(); } catch (e) {} }
-},
+  overlay(sel) {
+    ['#panelEquipment', '#panelProperties'].forEach(p => {
+      const panel = document.querySelector(p);
+      if (panel) panel.style.display = (p === sel) ? 'block' : 'none';
+    });
+    if (sel === '#panelEquipment') { try { UI.refreshEquipment(); } catch (e) {} }
+    if (sel === '#panelProperties') { try { UI.refreshProperties(); } catch (e) {} }
+  },
+  showStartup(){
+    const modal=document.getElementById('startupModal');
+    if(!modal) return;
+    modal.style.display='flex';
+    const sel=document.getElementById('startupCity');
+    if(sel) fillCitySelectGrouped(sel);
+    const btn=document.getElementById('startupBegin');
+    if(btn){
+      btn.onclick=()=>{
+        const name=(document.getElementById('startupName').value||'').trim();
+        const cityName=sel?sel.value:'';
+        if(!name){ alert('Enter company name'); return; }
+        Game.setCompanyInfo(name, cityName);
+        modal.style.display='none';
+      };
+    }
+  },
   init(){
     document.querySelectorAll('.close-x').forEach(x=>x.addEventListener('click', e=>{ const t=e.currentTarget.getAttribute('data-close'); if (t) document.querySelector(t).style.display='none'; }));
     ['panelCompany','panelMarket','panelBank','panelEquipment','panelProperties'].forEach(id=>makeDraggable(document.getElementById(id)));
@@ -188,12 +205,13 @@ overlay(sel) {
     const content = panel.querySelector('.content');
     if (!content) return;
 
-    if (!UI._companyWired){
-      const trucks = Game.equipment.filter(e=>e.type==='truck').length;
-      const props = Game.properties.length;
-      const overhead = trucks*Game.overheadPerTruck + props*Game.overheadPerProperty;
+    const trucks = Game.equipment.filter(e=>e.type==='truck').length;
+    const props = Game.properties.length;
+    const overhead = trucks*Game.overheadPerTruck + props*Game.overheadPerProperty;
 
+    if (!UI._companyWired){
       content.innerHTML = `
+        <div id="companyHQDisplay" class="small" style="margin-bottom:8px; display:none;"></div>
         <div class="grid cols-2 company-grid">
           <div>
             <div class="stat">
@@ -215,7 +233,7 @@ overlay(sel) {
             </div>
 
             <div id="driversList" class="drivers-list"></div>
-            
+
           </div>
           <div>
             <div id="driverProfile" class="driver-profile">
@@ -288,8 +306,17 @@ overlay(sel) {
       UI._companyWired = true; try{ UI._companyNeedsListRefresh=true; UI._companyRenderDriverList(); }catch(e){}
     }
 
-    const trucks=Game.equipment.filter(e=>e.type==='truck').length, props=Game.properties.length;
-    const overhead=trucks*Game.overheadPerTruck + props*Game.overheadPerProperty;
+    const titleEl = document.getElementById('companyPanelTitle');
+    if(titleEl) titleEl.textContent = Game.companyName || 'Company';
+    const hqEl = content.querySelector('#companyHQDisplay');
+    if(hqEl){
+      if(Game.hqCity){
+        hqEl.textContent = 'HQ: ' + Game.hqCity.name;
+        hqEl.style.display = 'block';
+      } else {
+        hqEl.style.display = 'none';
+      }
+    }
     const bankEl = document.getElementById('statBank'); if (bankEl) bankEl.textContent = '$' + Game.bank.toLocaleString();
     const ohEl = document.getElementById('statOverhead'); if (ohEl) ohEl.textContent = '$' + overhead.toLocaleString() + ' / day';
 
@@ -650,6 +677,9 @@ function makeDraggable(panel){
 }
 
 export const Game = {
+  companyName: '',
+  hqCity: null,
+  hqMarker: null,
   bank: 250000,
   overheadPerTruck: 50,
   overheadPerProperty: 200,
@@ -685,8 +715,35 @@ export const Game = {
     UI.refreshBank();
   },
 
+  loadCompanyInfo(){
+    try { return JSON.parse(localStorage.getItem('companyInfo')); } catch(_){ return null; }
+  },
+  setCompanyInfo(name, cityName){
+    this.companyName = name;
+    this.hqCity = cityByName(cityName);
+    try{ localStorage.setItem('companyInfo', JSON.stringify({name, cityName})); }catch(_){ }
+    this.renderHQ();
+    UI.refreshCompany();
+  },
+  renderHQ(){
+    if(this.hqMarker){ try{ map.removeLayer(this.hqMarker); }catch(e){} }
+    if(!this.hqCity) return;
+    const lat=this.hqCity.lat+0.2, lng=this.hqCity.lng+0.2;
+    const icon=L.divIcon({className:'hq-marker', iconSize:[12,12], iconAnchor:[6,6]});
+    this.hqMarker=L.marker([lat,lng], {icon});
+    this.hqMarker.addTo(map);
+  },
+
   tickMs: 1000,
   init() {
+    const info=this.loadCompanyInfo();
+    if(info&&info.name&&info.cityName){
+      this.companyName=info.name;
+      this.hqCity=cityByName(info.cityName);
+      this.renderHQ();
+    } else {
+      UI.showStartup();
+    }
     this.generateHireDrivers();
     this.addDriver('Alice', cityByName('Chicago, IL'));
     this.addDriver('Ben',   cityByName('Dallas, TX'));
