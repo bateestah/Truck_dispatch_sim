@@ -19,6 +19,9 @@ export class Driver {
       this.lat = d.lat ?? lat ?? 0;
       this.lng = d.lng ?? lng ?? 0;
       this.cityName = d.cityName || '';
+      this.age = d.age || 0;
+      this.gender = d.gender || '';
+      this.experience = d.experience || 0;
       this.status = 'Idle';
       this.currentLoadId = null;
       this.truckMake = d.truckMake || '';
@@ -50,6 +53,9 @@ export class Driver {
       this.lat = lat || 0;
       this.lng = lng || 0;
       this.cityName = '';
+      this.age = 0;
+      this.gender = '';
+      this.experience = 0;
       this.status = 'Idle';
       this.currentLoadId = null;
       this.truckMake = '';
