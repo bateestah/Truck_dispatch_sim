@@ -30,6 +30,7 @@ export class Driver {
       this.marker = L.circleMarker([this.lat, this.lng], { radius:7, color:this.color, weight:2, fillColor:this.color, fillOpacity:0.7 });
       this.routeLine = null;
       this.path = null; this.cumMiles = null;
+      this.visible = true;
       // Simple HOS: last 7 days of on-duty hours (0-11)
       this.hos = Array.isArray(d.hos) ? d.hos.slice(0,7) : Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosSegments = [];
@@ -64,14 +65,17 @@ export class Driver {
       this.marker = L.circleMarker([this.lat, this.lng], { radius:7, color:this.color, weight:2, fillColor:this.color, fillOpacity:0.7 });
       this.routeLine = null;
       this.path = null; this.cumMiles = null;
+      this.visible = true;
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
-  render(){ this.marker.addTo(map); }
+  render(){ if(this.visible) this.marker.addTo(map); }
   setPosition(lat,lng){ this.lat=lat; this.lng=lng; this.marker.setLatLng([lat,lng]); }
+  showOnMap(){ this.visible=true; try{ this.marker.addTo(map); }catch(e){} if(this.routeLine) try{ this.routeLine.addTo(map); }catch(e){} }
+  hideFromMap(){ this.visible=false; try{ map.removeLayer(this.marker); }catch(e){} if(this.routeLine) try{ map.removeLayer(this.routeLine); }catch(e){} }
   startTripPolyline(path, loadId){
     this.status='On Trip';
     this.currentLoadId = loadId;
@@ -79,7 +83,7 @@ export class Driver {
     this.cumMiles = cumulativeMiles(path);
     if (this.routeLine){ try{ map.removeLayer(this.routeLine);}catch(e){} }
     this.routeLine = L.polyline(path, { color:this.color, weight:3, opacity:0.9 });
-    this.routeLine.addTo(map);
+    if(this.visible) this.routeLine.addTo(map);
   }
   /** Called every tick to move marker/advance along path */
   tick(now, load){
