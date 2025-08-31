@@ -15,6 +15,9 @@ export class Driver {
       this.id = _driverIdCounter++;
       this.firstName = d.firstName || '';
       this.lastName = d.lastName || '';
+      this.age = d.age || 0;
+      this.gender = d.gender || '';
+      this.experience = Math.min(d.experience || 0, this.age);
       this.color = d.color || color || '#39c';
       this.lat = d.lat ?? lat ?? 0;
       this.lng = d.lng ?? lng ?? 0;
@@ -46,6 +49,9 @@ export class Driver {
       this.id = _driverIdCounter++;
       this.firstName = parts[0] || 'Driver';
       this.lastName = parts.slice(1).join(' ') || '';
+      this.age = 0;
+      this.gender = '';
+      this.experience = 0;
       this.color = color || '#39c';
       this.lat = lat || 0;
       this.lng = lng || 0;
