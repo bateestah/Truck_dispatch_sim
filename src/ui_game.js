@@ -43,7 +43,7 @@ const TrailerPriceRanges = {
 export const UI = {
   _hosDayOffset: 0,
   _hirePage: 0,
-  legend:{ showHQ:true, showSmallYards:true, showLargeYards:true, showWarehouses:true, showTruckStops:true },
+  legend:{ showHQ:true, showSmallYards:true, showLargeYards:true, showWarehouses:true, showTruckStops:true, showRestAreas:true },
   _ensurePlus15Button(){ const hud=document.querySelector('#timeHud .clock')||document.getElementById('timeHud'); if(!hud) return; if(document.getElementById('btnPlus15')) return; const btn=document.createElement('button'); btn.id='btnPlus15'; btn.className='btn'; btn.title='Advance 15 sim minutes'; btn.textContent='+15m'; btn.onclick=()=>{ Game.jump(15*60*1000); UI.updateTimeHUD(); }; const b4=hud.querySelector('button[onclick*="Game.resume(4)"]'); if(b4&&b4.parentNode) b4.parentNode.insertBefore(btn, b4.nextSibling); else hud.appendChild(btn); },
   show(sel){ document.querySelectorAll('.panel').forEach(p=>p.style.display='none'); const el=document.querySelector(sel); if (el) el.style.display='block'; if(sel==='#panelCompany'){ try{ const s=document.getElementById('txtDriverSearch'); if(s) s.value=''; UI._companyNeedsListRefresh=true; UI.refreshCompany(); }catch(e){} } if(sel==='#panelBank'){ try{ UI.refreshBank(); }catch(e){} } if(sel==='#panelMarket'){ try{ UI.renderMarket(); }catch(e){} } if(sel==='#panelEquipment'){ try{ UI.refreshEquipment(); }catch(e){} } if(sel==='#panelProperties'){ try{ UI.refreshProperties(); }catch(e){} } },
   overlay(sel) {
@@ -762,7 +762,8 @@ export const UI = {
       <label><input type="checkbox" id="lg-prop-small" ${UI.legend.showSmallYards?'checked':''}><span class="prop-marker-small"></span>Small Yards</label>
       <label><input type="checkbox" id="lg-prop-large" ${UI.legend.showLargeYards?'checked':''}><span class="prop-marker-large"></span>Large Yards</label>
       <label><input type="checkbox" id="lg-prop-warehouse" ${UI.legend.showWarehouses?'checked':''}><span class="prop-marker-warehouse"></span>Warehouses</label>
-      <label><input type="checkbox" id="lg-truck-stops" ${UI.legend.showTruckStops?'checked':''}><span class="truck-stop-marker"></span>Truck Stops</label>`;
+      <label><input type="checkbox" id="lg-truck-stops" ${UI.legend.showTruckStops?'checked':''}><span class="truck-stop-marker"></span>Truck Stops</label>
+      <label><input type="checkbox" id="lg-rest-areas" ${UI.legend.showRestAreas?'checked':''}><span class="rest-area-marker"></span>Rest Areas</label>`;
     el.appendChild(layers);
     const dsec=document.createElement('div');
     dsec.className='legend-section';
@@ -784,6 +785,8 @@ export const UI = {
     if(whCb) whCb.addEventListener('change',e=>{ UI.legend.showWarehouses=e.target.checked; for(const m of Game.propertyMarkers.warehouse){ e.target.checked?m.addTo(map):map.removeLayer(m); } });
     const tsCb=el.querySelector('#lg-truck-stops');
     if(tsCb) tsCb.addEventListener('change',e=>{ UI.legend.showTruckStops=e.target.checked; for(const m of Game.truckStopMarkers){ e.target.checked?m.addTo(map):map.removeLayer(m); } });
+    const raCb=el.querySelector('#lg-rest-areas');
+    if(raCb) raCb.addEventListener('change',e=>{ UI.legend.showRestAreas=e.target.checked; for(const m of Game.restAreaMarkers){ e.target.checked?m.addTo(map):map.removeLayer(m); } });
     list.querySelectorAll('input[data-driver-id]').forEach(cb=>cb.addEventListener('change',e=>{ const id=e.target.getAttribute('data-driver-id'); const d=Game.drivers.find(x=>String(x.id)===String(id)); if(d){ e.target.checked?d.showOnMap():d.hideFromMap(); } }));
   }
 };
@@ -825,6 +828,8 @@ export const Game = {
   propertyMarkers: { small:[], large:[], warehouse:[] },
   truckStops: [],
   truckStopMarkers: [],
+  restAreas: [],
+  restAreaMarkers: [],
   loads: [],
   cashFlow: [],
   loans: [],
@@ -919,6 +924,26 @@ export const Game = {
       });
       if(UI.legend.showTruckStops) marker.addTo(map);
       this.truckStopMarkers.push(marker);
+    }
+  },
+
+  renderRestAreaMarkers(){
+    for(const m of this.restAreaMarkers){
+      try{ map.removeLayer(m); }catch(e){}
+    }
+    this.restAreaMarkers=[];
+    if(!Array.isArray(this.restAreas)) return;
+    const px=8;
+    for(const ra of this.restAreas){
+      const lat = ra.latitude ?? ra.lat;
+      const lng = ra.longitude ?? ra.lng;
+      if(lat==null||lng==null) continue;
+      const marker=L.marker([lat,lng],{
+        interactive:false,
+        icon:L.divIcon({className:'rest-area-marker',iconSize:[px,px],iconAnchor:[px/2,px/2]})
+      });
+      if(UI.legend.showRestAreas) marker.addTo(map);
+      this.restAreaMarkers.push(marker);
     }
   },
 
@@ -1044,6 +1069,10 @@ export const Game = {
     fetch('./truck_stops.json')
       .then(r=>r.json())
       .then(data=>{ this.truckStops=data; this.renderTruckStopMarkers(); })
+      .catch(()=>{});
+    fetch('./rest_areas.json')
+      .then(r=>r.json())
+      .then(data=>{ this.restAreas=data; this.renderRestAreaMarkers(); })
       .catch(()=>{});
     UI.refreshAll();
     if (this.loop) clearInterval(this.loop); this.loop = setInterval(()=>this.update(), this.tickMs);
