@@ -728,10 +728,13 @@ export const Game = {
   renderHQ(){
     if(this.hqMarker){ try{ map.removeLayer(this.hqMarker); }catch(e){} }
     if(!this.hqCity) return;
-    const lat=this.hqCity.lat+0.2, lng=this.hqCity.lng+0.2;
-    const size=0.07;
-    const bounds=[[lat-size,lng-size],[lat+size,lng+size]];
-    this.hqMarker=L.rectangle(bounds,{color:'red',weight:1,fillColor:'red',fillOpacity:0.7});
+
+    const lat=this.hqCity.lat, lng=this.hqCity.lng;
+    const px=12;
+    this.hqMarker=L.marker([lat,lng],{
+      interactive:false,
+      icon:L.divIcon({className:'hq-marker', iconSize:[px,px], iconAnchor:[px/2,px/2]})
+    });
     this.hqMarker.addTo(map);
   },
 
