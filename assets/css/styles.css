@@ -32,6 +32,7 @@ select, input[type="number"], input[type="text"]{width:100%; padding:8px; border
 .prop-marker-small{width:12px; height:12px; background:purple; border:1px solid #800080; display:inline-block;}
 .prop-marker-large{width:12px; height:12px; background:blue; border:1px solid #0000aa; display:inline-block;}
 .prop-marker-warehouse{width:12px; height:12px; background:yellow; border:1px solid #999900; display:inline-block;}
+.truck-stop-marker{width:8px; height:8px; background:orange; border:1px solid #cc8400; display:inline-block;}
 .note{opacity:.8; font-size:12px;}
 .row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
 .drawbar{position:absolute; left:12px; bottom:70px; z-index:650; background:#0f1418; border:1px solid #2d3943; border-radius:10px; padding:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
