@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -541,7 +541,7 @@ export const UI = {
             <div class="small" id="hosDayLabel" style="flex:1; text-align:center;">today</div>
             <button id="hosNext" class="btn" style="padding:2px 6px;">&gt;</button>
           </div>
-          <canvas id="hosChart" width="340" height="160"></canvas>
+          <canvas id="hosChart" width="400" height="160"></canvas>
         </div>
       </div>
     `;
@@ -572,7 +572,7 @@ export const UI = {
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
     // Layout
-    const padding = { l: 40, r: 10, t: 10, b: 24 };
+    const padding = { l: 40, r: 60, t: 10, b: 24 };
     const W = canvas.width - padding.l - padding.r;
     const H = canvas.height - padding.t - padding.b;
 
@@ -633,6 +633,15 @@ export const UI = {
       return;
     }
 
+    // Totals per status
+    const totals = {OFF:0, SB:0, D:0, ON:0};
+    for (const seg of segs){
+      const st = seg.status || seg.s || 'OFF';
+      const start = Math.max(0, Math.min(24, seg.start));
+      const end = Math.max(0, Math.min(24, seg.end));
+      if (end > start) totals[st] = (totals[st] || 0) + (end - start);
+    }
+
     // Draw segments as a continuous step graph, connecting status changes vertically
     const xCoord = hr => padding.l + (Math.max(0, Math.min(24, hr))/24) * W;
     const yCoord = st => {
@@ -666,6 +675,20 @@ export const UI = {
       }
       ctx.stroke();
     }
+    // Totals text on right
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#444';
+    const fmt = h => {
+      const m = Math.round(h * 60);
+      const hh = Math.floor(m/60);
+      const mm = String(m % 60).padStart(2,'0');
+      return `${String(hh).padStart(2,'0')}:${mm}`;
+    };
+    rows.forEach((name,i)=>{
+      const y = padding.t + i*rowH + rowH/2;
+      ctx.fillText(fmt(totals[name] || 0), padding.l + W + 6, y);
+    });
 
     ctx.restore();
   },
@@ -947,6 +970,31 @@ export const Game = {
     }
   },
 
+  findNearestStop(lat,lng){
+    const stops=[];
+    if(Array.isArray(this.truckStops)){
+      for(const ts of this.truckStops){
+        const [sLat,sLng]=ts.coordinates||[];
+        if(sLat==null||sLng==null) continue;
+        stops.push({name:ts.name, lat:sLat, lng:sLng});
+      }
+    }
+    if(Array.isArray(this.restAreas)){
+      for(const ra of this.restAreas){
+        const sLat=ra.latitude ?? ra.lat;
+        const sLng=ra.longitude ?? ra.lng;
+        if(sLat==null||sLng==null) continue;
+        stops.push({name:ra.name, lat:sLat, lng:sLng});
+      }
+    }
+    let best=null, bestDist=Infinity;
+    for(const s of stops){
+      const d=haversineMiles({lat,lng},{lat:s.lat,lng:s.lng});
+      if(d<bestDist){ best=s; bestDist=d; }
+    }
+    return best;
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -955,6 +1003,7 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
+      hosOnDutyToday:d.hosOnDutyToday,_hosLastDayStr:d._hosLastDayStr,currentBreak:d.currentBreak,
       _pendingMainLeg:d._pendingMainLeg
     };
   },
@@ -1244,11 +1293,28 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+      const ld = this.loads.find(l => l.id === d.currentLoadId);
+      if (d.currentBreak) {
+        if (ld) ld.pauseMs = (d.currentBreak.pauseBase||0) + Math.min(now, d.currentBreak.endMs) - d.currentBreak.startMs;
+        if (now >= d.currentBreak.endMs) {
+          if (ld) ld.pauseMs = (d.currentBreak.pauseBase||0) + (d.currentBreak.endMs - d.currentBreak.startMs);
+          d.endBreak();
+        }
+        continue;
+      }
       if (d.status === 'On Trip') {
-        const ld = this.loads.find(l => l.id === d.currentLoadId);
         if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+        const legal = d.isDrivingLegal(now);
+        if (!legal.ok) {
+          const stop = this.findNearestStop(d.lat, d.lng);
+          if (stop) {
+            ld.pauseMs = ld.pauseMs || 0;
+            d.startBreak(legal.type, legal.durationMs, now, stop, ld.pauseMs);
+          }
+          continue;
+        }
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
             if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
