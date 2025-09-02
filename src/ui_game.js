@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -947,6 +947,31 @@ export const Game = {
     }
   },
 
+  findNearestStop(lat,lng){
+    const stops=[];
+    if(Array.isArray(this.truckStops)){
+      for(const ts of this.truckStops){
+        const [sLat,sLng]=ts.coordinates||[];
+        if(sLat==null||sLng==null) continue;
+        stops.push({name:ts.name, lat:sLat, lng:sLng});
+      }
+    }
+    if(Array.isArray(this.restAreas)){
+      for(const ra of this.restAreas){
+        const sLat=ra.latitude ?? ra.lat;
+        const sLng=ra.longitude ?? ra.lng;
+        if(sLat==null||sLng==null) continue;
+        stops.push({name:ra.name, lat:sLat, lng:sLng});
+      }
+    }
+    let best=null, bestDist=Infinity;
+    for(const s of stops){
+      const d=haversineMiles({lat,lng},{lat:s.lat,lng:s.lng});
+      if(d<bestDist){ best=s; bestDist=d; }
+    }
+    return best;
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -955,6 +980,7 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
+      hosOnDutyToday:d.hosOnDutyToday,_hosLastDayStr:d._hosLastDayStr,currentBreak:d.currentBreak,
       _pendingMainLeg:d._pendingMainLeg
     };
   },
@@ -1244,11 +1270,28 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+      const ld = this.loads.find(l => l.id === d.currentLoadId);
+      if (d.currentBreak) {
+        if (ld) ld.pauseMs = (d.currentBreak.pauseBase||0) + Math.min(now, d.currentBreak.endMs) - d.currentBreak.startMs;
+        if (now >= d.currentBreak.endMs) {
+          if (ld) ld.pauseMs = (d.currentBreak.pauseBase||0) + (d.currentBreak.endMs - d.currentBreak.startMs);
+          d.endBreak();
+        }
+        continue;
+      }
       if (d.status === 'On Trip') {
-        const ld = this.loads.find(l => l.id === d.currentLoadId);
         if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+        const legal = d.isDrivingLegal(now);
+        if (!legal.ok) {
+          const stop = this.findNearestStop(d.lat, d.lng);
+          if (stop) {
+            ld.pauseMs = ld.pauseMs || 0;
+            d.startBreak(legal.type, legal.durationMs, now, stop, ld.pauseMs);
+          }
+          continue;
+        }
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
             if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
