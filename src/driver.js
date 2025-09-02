@@ -39,6 +39,10 @@ export class Driver {
       this.hosDriveSinceReset = 0;
       this.hosDriveSinceLastBreak = 0;
       this.hosOffStreak = 0;
+      this.hosDaysSinceReset = d.hosDaysSinceReset || 0;
+      this.hosOffSinceDriving = d.hosOffSinceDriving || 0;
+      this._hosWorkedToday = false;
+      this._hosPrevDay = null;
       this._hosPausedStartMs = null;
       this._hosLastTickMs = null;
       this.hosLog = [];
@@ -69,6 +73,10 @@ export class Driver {
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.hosDaysSinceReset = 0;
+      this.hosOffSinceDriving = 0;
+      this._hosWorkedToday = false;
+      this._hosPrevDay = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -119,12 +127,23 @@ export class Driver {
       const dt = new Date(t);
       const hr = dt.getHours() + dt.getMinutes()/60;
       this._appendHosSegment(st, hr-0.25, hr);
+      const dayStr = dt.toDateString();
+      if (this._hosPrevDay === null) this._hosPrevDay = dayStr;
+      if (dayStr !== this._hosPrevDay){
+        if (this._hosWorkedToday) this.hosDaysSinceReset++;
+        this._hosWorkedToday = false;
+        this._hosPrevDay = dayStr;
+      }
       if (st==='OFF' || st==='SB'){
         this.hosOffStreak += 0.25;
-        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - 0.25);
+        this.hosOffSinceDriving += 0.25;
+        if (this.hosOffSinceDriving >= 0.5) this.hosDriveSinceLastBreak = 0;
         if (this.hosOffStreak >= 10){ this.hosDutyStartMs=null; this.hosDriveSinceReset=0; }
+        if (this.hosOffStreak >= 34){ this.hosDaysSinceReset = 0; }
       } else {
         this.hosOffStreak = 0;
+        this.hosOffSinceDriving = 0;
+        this._hosWorkedToday = true;
         if (!this.hosDutyStartMs) this.hosDutyStartMs = t;
         if (st==='D'){ this.hosDriveSinceReset += 0.25; this.hosDriveSinceLastBreak += 0.25; }
       }
@@ -134,14 +153,17 @@ export class Driver {
   isDrivingLegal(nowMs){
     const dutyStart = this.hosDutyStartMs;
     const onDutyHrs = dutyStart ? Math.max(0, (nowMs - dutyStart)/3600000) : 0;
+    if (this.hosDaysSinceReset >= 7){
+      return { ok:false, reason:'7 consecutive days on duty. Take a 34-hour break.', type:'34hr' };
+    }
     if (this.hosDriveSinceReset >= 11){
-      return { ok:false, reason:'11-hour driving limit reached. Take a 10-hour break.' };
+      return { ok:false, reason:'11-hour driving limit reached. Take a 10-hour break.', type:'10hr' };
     }
     if (dutyStart && onDutyHrs >= 14){
-      return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.' };
+      return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.', type:'10hr' };
     }
     if (this.hosDriveSinceLastBreak >= 8){
-      return { ok:false, reason:'30-minute break required after 8h driving.' };
+      return { ok:false, reason:'30-minute break required after 8h driving.', type:'30min' };
     }
     return { ok:true };
   }
