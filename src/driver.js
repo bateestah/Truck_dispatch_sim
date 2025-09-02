@@ -43,6 +43,10 @@ export class Driver {
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.hosOnDutyToday = d.hosOnDutyToday || 0;
+      this._hosLastDayStr = d._hosLastDayStr || null;
+      this.currentBreak = d.currentBreak || null;
+      this._nextBreakTarget = d._nextBreakTarget || null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -69,6 +73,10 @@ export class Driver {
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.hosOnDutyToday = 0;
+      this._hosLastDayStr = null;
+      this.currentBreak = null;
+      this._nextBreakTarget = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -85,6 +93,12 @@ export class Driver {
     this.routeLine = L.polyline(path, { color:this.color, weight:3, opacity:0.9 });
     if(this.visible) this.routeLine.addTo(map);
   }
+  startBreak(type,durationMs,nowMs,stop,pauseBase=0){
+    this.currentBreak={ type, startMs:nowMs, endMs:nowMs+durationMs, location:stop, pauseBase };
+    if(stop) this.setPosition(stop.lat, stop.lng);
+    this.status='SB';
+  }
+  endBreak(){ this.currentBreak=null; this.status='On Trip'; }
   /** Called every tick to move marker/advance along path */
   tick(now, load){
     if (!this.path || !this.cumMiles) return;
@@ -96,10 +110,10 @@ export class Driver {
     this.setPosition(p.lat, p.lng);
   }
   _hosStatus(){
-    if (this.currentLoadId) return 'D';
     const s = this.status || 'Idle';
     if (s === 'SB' || s === 'Sleeper') return 'SB';
     if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (this.currentLoadId) return 'D';
     return 'OFF';
   }
   _appendHosSegment(status, startHour, endHour){
@@ -117,38 +131,70 @@ export class Driver {
     for (let t=this._hosLastTickMs+stepMs; t<=nowMs; t+=stepMs){
       const st = this._hosStatus();
       const dt = new Date(t);
+      const dayStr = dt.toDateString();
+      if (this._hosLastDayStr && this._hosLastDayStr !== dayStr){
+        this.hos.push(this.hosOnDutyToday);
+        if (this.hos.length > 7) this.hos.shift();
+        this.hosOnDutyToday = 0;
+      }
+      this._hosLastDayStr = dayStr;
       const hr = dt.getHours() + dt.getMinutes()/60;
       this._appendHosSegment(st, hr-0.25, hr);
       if (st==='OFF' || st==='SB'){
         this.hosOffStreak += 0.25;
-        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - 0.25);
+        if (this.hosOffStreak >= 0.5){
+          this.hosDriveSinceLastBreak = 0;
+          this._nextBreakTarget = null;
+        }
         if (this.hosOffStreak >= 10){ this.hosDutyStartMs=null; this.hosDriveSinceReset=0; }
+        if (this.hosOffStreak >= 34){
+          this.hos = Array(7).fill(0);
+          this.hosOnDutyToday = 0;
+          this.hosDutyStartMs=null;
+          this.hosDriveSinceReset=0;
+          this.hosDriveSinceLastBreak=0;
+          this._nextBreakTarget = null;
+        }
       } else {
         this.hosOffStreak = 0;
         if (!this.hosDutyStartMs) this.hosDutyStartMs = t;
-        if (st==='D'){ this.hosDriveSinceReset += 0.25; this.hosDriveSinceLastBreak += 0.25; }
+        if (st==='D'){
+          this.hosDriveSinceReset += 0.25;
+          this.hosDriveSinceLastBreak += 0.25;
+          if (this._nextBreakTarget===null && this.hosDriveSinceLastBreak >=5){
+            this._nextBreakTarget = 5 + Math.random()*3;
+          }
+        }
+        this.hosOnDutyToday += 0.25;
       }
       this._hosLastTickMs = t;
     }
   }
   isDrivingLegal(nowMs){
     const dutyStart = this.hosDutyStartMs;
+    const weekly = this.hos.reduce((a,b)=>a+b,0) + this.hosOnDutyToday;
+    if (weekly >= 70){
+      return { ok:false, reason:'70-hour limit reached. Take a 34-hour reset.', type:'34h', durationMs:34*3600*1000 };
+    }
     const onDutyHrs = dutyStart ? Math.max(0, (nowMs - dutyStart)/3600000) : 0;
     if (this.hosDriveSinceReset >= 11){
-      return { ok:false, reason:'11-hour driving limit reached. Take a 10-hour break.' };
+      return { ok:false, reason:'11-hour driving limit reached. Take a 10-hour break.', type:'10h', durationMs:10*3600*1000 };
     }
     if (dutyStart && onDutyHrs >= 14){
-      return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.' };
+      return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.', type:'10h', durationMs:10*3600*1000 };
     }
-    if (this.hosDriveSinceLastBreak >= 8){
-      return { ok:false, reason:'30-minute break required after 8h driving.' };
+    const breakLimit = this._nextBreakTarget || 8;
+    if (this.hosDriveSinceLastBreak >= breakLimit){
+      this._nextBreakTarget = null;
+      return { ok:false, reason:'30-minute break required.', type:'30m', durationMs:30*60*1000 };
     }
     return { ok:true };
   }
 
   _currentHosStatus(){
-    if (this.currentLoadId || this.status === 'On Trip') return 'D';
     if (this.status === 'SB' || this.status === 'Sleeper') return 'SB';
+    if (this.status === 'OFF' || this.status === 'Off Duty') return 'OFF';
+    if (this.currentLoadId || this.status === 'On Trip') return 'D';
     if (this.status === 'On Duty') return 'ON';
     return 'OFF';
   }
@@ -167,18 +213,41 @@ export class Driver {
     }
   }
 
-  getHosSegments24(nowMs){
+  /**
+   * Compute HOS segments for a 24 h window.  `nowMs` is the current
+   * simulation time.  `offsetMs` (optional) selects a prior day by shifting
+   * back in 24 h increments.  The returned segments are clipped so that the
+   * final segment ends at either the current time (for today) or at the end of
+   * the requested day (for past days).  This keeps the graph from assuming the
+   * driver will remain in the same status until midnight, which previously
+   * caused the drive line to jump to 23:59 when a load was assigned.
+   */
+  getHosSegments24(nowMs, offsetMs=0){
     const DAY_MS = 24*3600*1000;
-    const startMs = Math.max(0, nowMs - DAY_MS);
+    const targetMs = nowMs - offsetMs; // a time within the day we want to draw
+    const dt = new Date(targetMs);
+    dt.setHours(0,0,0,0);
+    const startMs = dt.getTime();
+    const endMs = startMs + DAY_MS;
+    // If looking at today, clip at the current time, otherwise show full day
+    const limitMs = offsetMs ? endMs : Math.min(nowMs, endMs);
+
     const evs = [];
     if (!this.hosLog.length){
-      return [{ start: 24-0.25, end: 24, status: 'OFF' }];
+      const endH = (limitMs - startMs) / 3600000;
+      return [{ start: 0, end: endH, status: 'OFF' }];
     }
-    let statusAtStart = this.hosLog[0].status;
-    for (const ev of this.hosLog){ if (ev.tMs <= startMs) statusAtStart = ev.status; else break; }
+
+    let statusAtStart = 'OFF';
+    for (const ev of this.hosLog){
+      if (ev.tMs <= startMs) statusAtStart = ev.status; else break;
+    }
     evs.push({ tMs: startMs, status: statusAtStart });
-    for (const ev of this.hosLog){ if (ev.tMs > startMs && ev.tMs < nowMs) evs.push({ tMs: ev.tMs, status: ev.status }); }
-    evs.push({ tMs: nowMs, status: evs.length ? evs[evs.length-1].status : statusAtStart });
+    for (const ev of this.hosLog){
+      if (ev.tMs > startMs && ev.tMs < limitMs) evs.push({ tMs: ev.tMs, status: ev.status });
+    }
+    evs.push({ tMs: limitMs, status: evs.length ? evs[evs.length-1].status : statusAtStart });
+
     const segs = [];
     for (let i=0;i<evs.length-1;i++){
       const a = evs[i], b = evs[i+1];
