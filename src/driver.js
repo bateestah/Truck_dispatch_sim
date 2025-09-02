@@ -43,6 +43,11 @@ export class Driver {
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
+      this._hosBreakStartMs = null;
+      this._hosBreakUntilMs = null;
+      this._hosBreakDurMs = 0;
+      this._hosBreakType = null;
+      this._hosBreakStop = null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -69,6 +74,11 @@ export class Driver {
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
+      this._hosBreakStartMs = null;
+      this._hosBreakUntilMs = null;
+      this._hosBreakDurMs = 0;
+      this._hosBreakType = null;
+      this._hosBreakStop = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -96,10 +106,13 @@ export class Driver {
     this.setPosition(p.lat, p.lng);
   }
   _hosStatus(){
-    if (this.currentLoadId) return 'D';
+    // Determine HOS status based on current driver state. Break and sleeper
+    // statuses should take precedence over having a load assigned so that
+    // off-duty time is tracked correctly when the driver is paused mid-load.
     const s = this.status || 'Idle';
     if (s === 'SB' || s === 'Sleeper') return 'SB';
-    if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (s === 'OFF' || s === 'Off Duty' || s === 'Break') return 'OFF';
+    if (this.currentLoadId) return 'D';
     return 'OFF';
   }
   _appendHosSegment(status, startHour, endHour){
@@ -143,13 +156,21 @@ export class Driver {
     if (this.hosDriveSinceLastBreak >= 8){
       return { ok:false, reason:'30-minute break required after 8h driving.' };
     }
+    const last7 = Array.isArray(this.hos) ? this.hos.reduce((a,b)=>a+(b||0),0) : 0;
+    if (last7 >= 70){
+      return { ok:false, reason:'70-hour limit reached. Take a 34-hour break.' };
+    }
     return { ok:true };
   }
 
   _currentHosStatus(){
-    if (this.currentLoadId || this.status === 'On Trip') return 'D';
-    if (this.status === 'SB' || this.status === 'Sleeper') return 'SB';
-    if (this.status === 'On Duty') return 'ON';
+    // Similar to _hosStatus but used for logging; honour explicit break/off
+    // statuses even if a load is assigned.
+    const s = this.status;
+    if (s === 'SB' || s === 'Sleeper') return 'SB';
+    if (s === 'OFF' || s === 'Off Duty' || s === 'Break') return 'OFF';
+    if (s === 'On Duty') return 'ON';
+    if (this.currentLoadId || s === 'On Trip') return 'D';
     return 'OFF';
   }
 

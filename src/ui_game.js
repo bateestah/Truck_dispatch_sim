@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -947,6 +947,29 @@ export const Game = {
     }
   },
 
+  findNearestStop(lat,lng){
+    const all=[];
+    if(Array.isArray(this.truckStops)){
+      for(const ts of this.truckStops){
+        const [sLat,sLng]=ts.coordinates||[];
+        if(sLat!=null && sLng!=null) all.push({lat:sLat,lng:sLng,name:ts.name});
+      }
+    }
+    if(Array.isArray(this.restAreas)){
+      for(const ra of this.restAreas){
+        const sLat=ra.latitude ?? ra.lat;
+        const sLng=ra.longitude ?? ra.lng;
+        if(sLat!=null && sLng!=null) all.push({lat:sLat,lng:sLng,name:ra.name});
+      }
+    }
+    let best=null, bestDist=Infinity;
+    for(const s of all){
+      const d=haversineMiles({lat,lng},{lat:s.lat,lng:s.lng});
+      if(d<bestDist){ bestDist=d; best=s; }
+    }
+    return best;
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -955,7 +978,10 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
-      _pendingMainLeg:d._pendingMainLeg
+      _pendingMainLeg:d._pendingMainLeg,
+      _hosBreakStartMs:d._hosBreakStartMs,_hosBreakUntilMs:d._hosBreakUntilMs,
+      _hosBreakDurMs:d._hosBreakDurMs,_hosBreakType:d._hosBreakType,
+      _hosBreakStop:d._hosBreakStop
     };
   },
   serialize(){
@@ -1029,6 +1055,11 @@ export const Game = {
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
+        drv._hosBreakStartMs=dd._hosBreakStartMs||null;
+        drv._hosBreakUntilMs=dd._hosBreakUntilMs||null;
+        drv._hosBreakDurMs=dd._hosBreakDurMs||0;
+        drv._hosBreakType=dd._hosBreakType||null;
+        drv._hosBreakStop=dd._hosBreakStop||null;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1244,22 +1275,51 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
       if (d.status === 'On Trip') {
         const ld = this.loads.find(l => l.id === d.currentLoadId);
         if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+
+        // Handle ongoing break
+        if (d._hosBreakUntilMs){
+          if (now >= d._hosBreakUntilMs){
+            ld.pauseMs = (ld.pauseMsBase||0) + d._hosBreakDurMs;
+            d._hosBreakStartMs=null; d._hosBreakUntilMs=null; d._hosBreakDurMs=0; d._hosBreakStop=null;
+            if (d._hosBreakType==='34h'){ d.hos=Array(7).fill(0); d.hosDriveSinceReset=0; d.hosDriveSinceLastBreak=0; d.hosDutyStartMs=null; }
+            d._hosBreakType=null;
+            d.status='On Trip';
+          } else {
+            ld.pauseMs = (ld.pauseMsBase||0) + (now - d._hosBreakStartMs);
+            const pos=d._hosBreakStop; if(pos) d.setPosition(pos.lat,pos.lng);
+            continue;
+          }
+        }
+
+        const legal = d.isDrivingLegal(now);
+        if (!legal.ok){
+          let breakMs=10*3600*1000; let bType='10h';
+          if (legal.reason.includes('30-minute')){ breakMs=30*60*1000; bType='30m'; }
+          else if (legal.reason.includes('34')){ breakMs=34*3600*1000; bType='34h'; }
+          const stop=this.findNearestStop(d.lat,d.lng) || {lat:d.lat,lng:d.lng};
+          d.setPosition(stop.lat,stop.lng);
+          d.status = bType==='30m' ? 'Off Duty' : 'SB';
+          ld.pauseMsBase = ld.pauseMs || 0;
+          d._hosBreakStartMs=now; d._hosBreakUntilMs=now+breakMs; d._hosBreakDurMs=breakMs; d._hosBreakType=bType; d._hosBreakStop=stop;
+          continue;
+        }
+
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
-            if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
-              // Mark the deadhead leg as complete so the driver can take new loads
-              ld.status = 'Delivered';
-              const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
-              const mainLoad = {
-                id: crypto.randomUUID(),
-                driverId: d.id, driverName: d.name, color: d.color,
-                kind: 'Main',
-                originName, destName,
+          if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
+            // Mark the deadhead leg as complete so the driver can take new loads
+            ld.status = 'Delivered';
+            const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
+            const mainLoad = {
+              id: crypto.randomUUID(),
+              driverId: d.id, driverName: d.name, color: d.color,
+              kind: 'Main',
+              originName, destName,
               start: route.path[0], end: route.path[route.path.length-1],
               miles: mainMiles, startTime: Game.getSimNow().getTime(),
               etaMs: etaMainMs, status: 'En Route', profit
