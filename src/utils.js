@@ -23,3 +23,27 @@ export function fmtETA(ms){
   const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
   return `${h}h ${m}m`;
 }
+
+export function findNearestStop(lat, lng, truckStops = [], restAreas = []) {
+  let nearest = null;
+  let minDist = Infinity;
+  const consider = (sLat, sLng, name, type) => {
+    const dist = haversineMiles({ lat, lng }, { lat: sLat, lng: sLng });
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = { lat: sLat, lng: sLng, name, type };
+    }
+  };
+  for (const ts of truckStops) {
+    const [sLat, sLng] = ts.coordinates || [];
+    if (sLat == null || sLng == null) continue;
+    consider(sLat, sLng, ts.name, 'Truck Stop');
+  }
+  for (const ra of restAreas) {
+    const sLat = ra.latitude ?? ra.lat;
+    const sLng = ra.longitude ?? ra.lng;
+    if (sLat == null || sLng == null) continue;
+    consider(sLat, sLng, ra.name, 'Rest Area');
+  }
+  return nearest;
+}

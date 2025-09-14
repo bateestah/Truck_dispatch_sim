@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, findNearestStop } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -1234,6 +1234,7 @@ export const Game = {
     const makeLoadRow = (overrides) => ({
       id: crypto.randomUUID(),
       driverId: d.id, driverName: d.name, color: d.color,
+      pauseMs: 0,
       ...overrides
     });
 
@@ -1274,22 +1275,42 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
-      if (d.status === 'On Trip') {
-        const ld = this.loads.find(l => l.id === d.currentLoadId);
-        if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+      const ld = this.loads.find(l => l.id === d.currentLoadId);
+      if (d.status === 'Sleeper' && d.sleepUntil && ld) {
+        ld.pauseMs = (ld.pauseMsBase || 0) + (now - (ld.pauseStartMs || now));
+        if (now >= d.sleepUntil) {
+          d.status = 'On Trip';
+          d.sleepUntil = null;
+          ld.pauseMs = (ld.pauseMsBase || 0) + (now - ld.pauseStartMs);
+          ld.pauseMsBase = ld.pauseMs;
+          ld.pauseStartMs = null;
+        }
+        continue;
+      }
+      if (d.status === 'On Trip' && ld) {
+        const legal = d.isDrivingLegal(now);
+        if (!legal.ok && legal.reason && legal.reason.startsWith('11-hour')) {
+          const stop = findNearestStop(d.lat, d.lng, this.truckStops, this.restAreas);
+          if (stop) d.setPosition(stop.lat, stop.lng);
+          d.status = 'Sleeper';
+          d.sleepUntil = now + 10*3600*1000;
+          ld.pauseMsBase = ld.pauseMs || 0;
+          ld.pauseStartMs = now;
+          continue;
+        }
+        const t = (now - ld.startTime - (ld.pauseMs || 0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
-            if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
-              // Mark the deadhead leg as complete so the driver can take new loads
-              ld.status = 'Delivered';
-              const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
-              const mainLoad = {
-                id: crypto.randomUUID(),
-                driverId: d.id, driverName: d.name, color: d.color,
-                kind: 'Main',
-                originName, destName,
+          if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
+            // Mark the deadhead leg as complete so the driver can take new loads
+            ld.status = 'Delivered';
+            const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
+            const mainLoad = {
+              id: crypto.randomUUID(),
+              driverId: d.id, driverName: d.name, color: d.color,
+              kind: 'Main',
+              originName, destName,
               start: route.path[0], end: route.path[route.path.length-1],
               miles: mainMiles, startTime: Game.getSimNow().getTime(),
               etaMs: etaMainMs, status: 'En Route', profit
