@@ -572,7 +572,8 @@ export const UI = {
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
     // Layout
-    const padding = { l: 40, r: 10, t: 10, b: 24 };
+    // Extra right padding to display daily totals for each status
+    const padding = { l: 40, r: 60, t: 10, b: 24 };
     const W = canvas.width - padding.l - padding.r;
     const H = canvas.height - padding.t - padding.b;
 
@@ -607,19 +608,6 @@ export const UI = {
     ctx.fillText(String(hr).padStart(2,'0'), x, padding.t + H + 6);
   }
 }
-    // Row labels + baselines
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#666';
-    rows.forEach((name, i)=>{
-      const y = padding.t + i*rowH + rowH/2;
-      ctx.fillText(name, padding.l - 8, y);
-      ctx.beginPath();
-      ctx.moveTo(padding.l, y);
-      ctx.lineTo(padding.l + W, y);
-      ctx.stroke();
-    });
-
     // Data
     const offsetMs = (UI._hosDayOffset || 0) * 24 * 3600 * 1000;
     const now = Game.getSimNow();
@@ -641,6 +629,37 @@ export const UI = {
       ctx.restore();
       return;
     }
+
+    // Calculate totals for each status in hours
+    const totals = {};
+    rows.forEach(r => totals[r] = 0);
+    for (const seg of segs) {
+      const st = seg.status || seg.s || 'OFF';
+      const dur = Math.max(0, (seg.end - seg.start));
+      if (totals[st] !== undefined) totals[st] += dur;
+    }
+
+    // Row labels, baselines, and totals
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#666';
+    rows.forEach((name, i) => {
+      const y = padding.t + i * rowH + rowH / 2;
+      ctx.fillText(name, padding.l - 8, y);
+      ctx.beginPath();
+      ctx.moveTo(padding.l, y);
+      ctx.lineTo(padding.l + W, y);
+      ctx.stroke();
+      // Totals to the right
+      const total = totals[name] || 0;
+      const h = Math.floor(total);
+      const m = Math.round((total - h) * 60);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#000';
+      ctx.fillText(`${h}h ${m}m`, padding.l + W + 5, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#666';
+    });
 
     // Draw segments as a continuous step graph, connecting status changes vertically
     const xCoord = hr => padding.l + (Math.max(0, Math.min(24, hr))/24) * W;
