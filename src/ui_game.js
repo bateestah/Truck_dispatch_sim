@@ -8,6 +8,7 @@ import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolyline
 import { OverrideStore } from './store.js';
 import { initLoadBoard, openLoadBoard } from './load_board.js';
 import { map } from './map.js';
+import { announce } from './announcer.js';
 
 // Catalog data for market
 const TruckCatalog = [
@@ -1275,6 +1276,9 @@ export const Game = {
     this.addCash(load.profit, `Delivered load ${load.originName} → ${load.destName}`);
     load.status = 'Delivered';
     UI.refreshDispatch();
+    const amt = load.profit.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+    const driver = load.driverName || 'Driver';
+    announce(`${driver} completed load and earned ${amt}`);
   },
 
   nearestStop(lat, lng){

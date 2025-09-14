@@ -6,6 +6,7 @@
 
 import * as CitiesMod from './data/cities.js';
 import * as Utils from './utils.js';
+import { announce } from './announcer.js';
 
 // Normalize exports
 const CITIES = (CitiesMod.Cities) || (CitiesMod.CityGroups ? CitiesMod.CityGroups.flatMap(g => g.items) : []);
@@ -272,15 +273,9 @@ function bookLoad(load, driverId){
   addBooked({ ...load, driverId, sid: SESSION_ID, bookedAt: new Date().toISOString() });
 
   if(typeof g.assignLoad==='function'){ try{ g.assignLoad(driverId, load); }catch(e){ console.warn('assignLoad error', e); } }
-  toast(`${load.origin.city}, ${load.origin.state} → ${load.dest.city}, ${load.dest.state} booked.`);
+  const driverName = d.name || `Driver ${driverId}`;
+  announce(`Booked under ${driverName}: ${load.origin.city}, ${load.origin.state} → ${load.dest.city}, ${load.dest.state}`);
 }
-
-function toast(msg){
-  let t=document.getElementById('lb-toast');
-  if(!t){ t=document.createElement('div'); t.id='lb-toast'; t.className='lb-toast'; document.body.appendChild(t); }
-  t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1800);
-}
-
 let _panel, _listEl, _mode='available';
 function setMode(mode){
   _mode=mode;
