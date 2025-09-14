@@ -47,6 +47,8 @@ export class Driver {
       this.hosLog = [];
       this._hosLastStatus = null;
       this.breakUntilMs = null;
+      this.shortBreakHr = null;
+      this.shortBreakTaken = false;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -82,6 +84,8 @@ export class Driver {
       this.hosLog = [];
       this._hosLastStatus = null;
       this.breakUntilMs = null;
+      this.shortBreakHr = null;
+      this.shortBreakTaken = false;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -215,6 +219,8 @@ export class Driver {
   finishTrip(end){
     this.setPosition(end.lat,end.lng); this.status='Idle'; this.currentLoadId=null;
     this.path = null; this.cumMiles = null;
+    this.shortBreakHr = null;
+    this.shortBreakTaken = false;
     // Simulate HOS accumulation for "today"
     const todayIdx = 6; // last element is today in our 7-day window
     const add = 2 + Math.floor(Math.random()*3);
