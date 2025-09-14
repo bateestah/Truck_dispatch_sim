@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -985,7 +985,8 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
-      _pendingMainLeg:d._pendingMainLeg
+      _pendingMainLeg:d._pendingMainLeg,
+      breakUntilMs:d.breakUntilMs
     };
   },
   serialize(){
@@ -1059,6 +1060,7 @@ export const Game = {
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
+        drv.breakUntilMs=dd.breakUntilMs||null;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1272,39 +1274,76 @@ export const Game = {
     UI.refreshDispatch();
   },
 
+  nearestStop(lat, lng){
+    let best=null, bestDist=Infinity;
+    const pos={lat,lng};
+    const add=(a,b)=>{ const dist=haversineMiles(pos,{lat:a,lng:b}); if(dist<bestDist){ bestDist=dist; best={lat:a,lng:b}; } };
+    for(const ts of this.truckStops){
+      const [a,b]=ts.coordinates||[]; if(a!=null&&b!=null) add(a,b);
+    }
+    for(const ra of this.restAreas){
+      const a=ra.latitude??ra.lat, b=ra.longitude??ra.lng; if(a!=null&&b!=null) add(a,b);
+    }
+    return best;
+  },
+
+  _beginSleeperBreak(d, ld, now){
+    const stop=this.nearestStop(d.lat, d.lng);
+    if(stop){ d.setPosition(stop.lat, stop.lng); }
+    d.status='SB';
+    d.breakUntilMs=now + 10*3600*1000;
+    if(ld){ ld.pauseMs=(ld.pauseMs||0) + 10*3600*1000; ld.status='Paused'; }
+    UI.refreshDispatch();
+  },
+
+  _updateDriver(d, now){
+    try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+    const ld=this.loads.find(l=>l.id===d.currentLoadId);
+    if(d.status==='SB' && d.breakUntilMs){
+      if(now>=d.breakUntilMs){
+        d.status='On Trip';
+        d.breakUntilMs=null;
+        if(ld){ ld.status='En Route'; }
+        UI.refreshDispatch();
+      } else {
+        return;
+      }
+    }
+    if(d.status==='On Trip'){
+      const legal=d.isDrivingLegal(now);
+      if(!legal.ok){ this._beginSleeperBreak(d, ld, now); return; }
+      if(!ld) return;
+      const t=(now - ld.startTime) / ld.etaMs;
+      if(t >= 1){
+        d.finishTrip(ld.end);
+        if(ld.kind==='Deadhead' && d._pendingMainLeg){
+          ld.status='Delivered';
+          const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
+          const mainLoad={
+            id: crypto.randomUUID(),
+            driverId: d.id, driverName: d.name, color: d.color,
+            kind:'Main',
+            originName, destName,
+            start: route.path[0], end: route.path[route.path.length-1],
+            miles: mainMiles, startTime: now,
+            etaMs: etaMainMs, status:'En Route', profit
+          };
+          this.loads.push(mainLoad);
+          d._pendingMainLeg=null;
+          d.startTripPolyline(route.path, mainLoad.id);
+          UI.refreshDispatch();
+        }else{
+          this.completeLoad(ld);
+        }
+      }else{
+        d.tick(now, ld);
+      }
+    }
+  },
+
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
-      if (d.status === 'On Trip') {
-        const ld = this.loads.find(l => l.id === d.currentLoadId);
-        if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
-        if (t >= 1) {
-          d.finishTrip(ld.end);
-            if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
-              // Mark the deadhead leg as complete so the driver can take new loads
-              ld.status = 'Delivered';
-              const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
-              const mainLoad = {
-                id: crypto.randomUUID(),
-                driverId: d.id, driverName: d.name, color: d.color,
-                kind: 'Main',
-                originName, destName,
-              start: route.path[0], end: route.path[route.path.length-1],
-              miles: mainMiles, startTime: Game.getSimNow().getTime(),
-              etaMs: etaMainMs, status: 'En Route', profit
-            };
-            this.loads.push(mainLoad);
-            d._pendingMainLeg = null;
-            d.startTripPolyline(route.path, mainLoad.id);
-            UI.refreshDispatch();
-          } else {
-            this.completeLoad(ld);
-          }
-        } else {
-          d.tick(now, ld);
-        }
-      }
+      this._updateDriver(d, now);
     }
     UI.refreshTablesLive();
   },
@@ -1316,9 +1355,14 @@ export const Game = {
     if (burn > 0) this.addCash(-burn, 'Daily overhead');
   }
   ,jump(ms){
-    this._simElapsedMs += Math.max(0, ms|0);
-    const now = this.getSimNow().getTime();
-    try { for (const d of this.drivers) { d.syncHosLog(now); d.applyHosTick(now); } } catch(e){}
+    let remaining = Math.max(0, ms|0);
+    while(remaining > 0){
+      const step = Math.min(remaining, 60*1000);
+      this._simElapsedMs += step;
+      const now = this.getSimNow().getTime();
+      for (const d of this.drivers){ this._updateDriver(d, now); }
+      remaining -= step;
+    }
     try {
       UI.refreshTablesLive();
       const sid = UI._companySelectedId;
