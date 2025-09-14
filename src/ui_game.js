@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -977,6 +977,29 @@ export const Game = {
     }
   },
 
+  findNearestStop(lat,lng){
+    const here={lat,lng};
+    let best=null;
+    const consider=pt=>{
+      const dist=haversineMiles(here,pt);
+      if(!best||dist<best.dist) best={dist,pt};
+    };
+    if(Array.isArray(this.truckStops)){
+      for(const ts of this.truckStops){
+        const [sLat,sLng]=ts.coordinates||[];
+        if(sLat!=null&&sLng!=null) consider({lat:sLat,lng:sLng});
+      }
+    }
+    if(Array.isArray(this.restAreas)){
+      for(const ra of this.restAreas){
+        const rLat=ra.latitude ?? ra.lat;
+        const rLng=ra.longitude ?? ra.lng;
+        if(rLat!=null&&rLng!=null) consider({lat:rLat,lng:rLng});
+      }
+    }
+    return best?best.pt:null;
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -985,7 +1008,8 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
-      _pendingMainLeg:d._pendingMainLeg
+      _pendingMainLeg:d._pendingMainLeg,
+      restStartMs:d.restStartMs,restUntilMs:d.restUntilMs,_returnPos:d._returnPos
     };
   },
   serialize(){
@@ -1059,6 +1083,9 @@ export const Game = {
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
+        drv.restStartMs=dd.restStartMs||null;
+        drv.restUntilMs=dd.restUntilMs||null;
+        drv._returnPos=dd._returnPos||null;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1274,22 +1301,40 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+      const ld = this.loads.find(l => l.id === d.currentLoadId);
+      if (d.status === 'Sleeper') {
+        if (d.restUntilMs && now >= d.restUntilMs) {
+          d.status = 'On Trip';
+          if (ld && ld.pauseStart) { ld.pauseMs = (ld.pauseMs||0) + (now - ld.pauseStart); ld.pauseStart = null; }
+          if (d._returnPos){ d.setPosition(d._returnPos.lat, d._returnPos.lng); d._returnPos=null; }
+          d.restStartMs = d.restUntilMs = null;
+        }
+        continue;
+      }
       if (d.status === 'On Trip') {
-        const ld = this.loads.find(l => l.id === d.currentLoadId);
+        if (d.hosDriveSinceReset >= 11) {
+          const stop = this.findNearestStop(d.lat,d.lng);
+          d._returnPos = {lat:d.lat,lng:d.lng};
+          if (stop) d.setPosition(stop.lat, stop.lng);
+          d.status = 'Sleeper';
+          d.restStartMs = now; d.restUntilMs = now + 10*3600*1000;
+          if (ld) ld.pauseStart = now;
+          continue;
+        }
         if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
-            if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
-              // Mark the deadhead leg as complete so the driver can take new loads
-              ld.status = 'Delivered';
-              const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
-              const mainLoad = {
-                id: crypto.randomUUID(),
-                driverId: d.id, driverName: d.name, color: d.color,
-                kind: 'Main',
-                originName, destName,
+          if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
+            // Mark the deadhead leg as complete so the driver can take new loads
+            ld.status = 'Delivered';
+            const { route, mainMiles, etaMainMs, profit, originName, destName } = d._pendingMainLeg;
+            const mainLoad = {
+              id: crypto.randomUUID(),
+              driverId: d.id, driverName: d.name, color: d.color,
+              kind: 'Main',
+              originName, destName,
               start: route.path[0], end: route.path[route.path.length-1],
               miles: mainMiles, startTime: Game.getSimNow().getTime(),
               etaMs: etaMainMs, status: 'En Route', profit
