@@ -43,6 +43,7 @@ export class Driver {
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.breakUntilMs = null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -69,6 +70,7 @@ export class Driver {
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.breakUntilMs = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -96,10 +98,11 @@ export class Driver {
     this.setPosition(p.lat, p.lng);
   }
   _hosStatus(){
-    if (this.currentLoadId) return 'D';
     const s = this.status || 'Idle';
     if (s === 'SB' || s === 'Sleeper') return 'SB';
     if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (s === 'On Trip' || s === 'Driving') return 'D';
+    if (this.currentLoadId) return 'D';
     return 'OFF';
   }
   _appendHosSegment(status, startHour, endHour){
@@ -112,21 +115,22 @@ export class Driver {
     this.hosSegments.push({start, end, status});
   }
   applyHosTick(nowMs){
-    const stepMs = 15*60*1000;
+    const stepMs = 60*1000; // one-minute resolution for accuracy
     if (!this._hosLastTickMs){ this._hosLastTickMs = nowMs - stepMs; }
     for (let t=this._hosLastTickMs+stepMs; t<=nowMs; t+=stepMs){
       const st = this._hosStatus();
       const dt = new Date(t);
       const hr = dt.getHours() + dt.getMinutes()/60;
-      this._appendHosSegment(st, hr-0.25, hr);
+      const stepHrs = stepMs / 3600000;
+      this._appendHosSegment(st, hr-stepHrs, hr);
       if (st==='OFF' || st==='SB'){
-        this.hosOffStreak += 0.25;
-        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - 0.25);
+        this.hosOffStreak += stepHrs;
+        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - stepHrs);
         if (this.hosOffStreak >= 10){ this.hosDutyStartMs=null; this.hosDriveSinceReset=0; }
       } else {
         this.hosOffStreak = 0;
         if (!this.hosDutyStartMs) this.hosDutyStartMs = t;
-        if (st==='D'){ this.hosDriveSinceReset += 0.25; this.hosDriveSinceLastBreak += 0.25; }
+        if (st==='D'){ this.hosDriveSinceReset += stepHrs; this.hosDriveSinceLastBreak += stepHrs; }
       }
       this._hosLastTickMs = t;
     }
@@ -134,22 +138,33 @@ export class Driver {
   isDrivingLegal(nowMs){
     const dutyStart = this.hosDutyStartMs;
     const onDutyHrs = dutyStart ? Math.max(0, (nowMs - dutyStart)/3600000) : 0;
-    if (this.hosDriveSinceReset >= 11){
+    let driveHrs = this.hosDriveSinceReset;
+    if (this._currentHosStatus()==='D' && this._hosLastTickMs){
+      driveHrs += (nowMs - this._hosLastTickMs)/3600000;
+    }
+    if (driveHrs >= 11){
       return { ok:false, reason:'11-hour driving limit reached. Take a 10-hour break.' };
     }
     if (dutyStart && onDutyHrs >= 14){
       return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.' };
     }
-    if (this.hosDriveSinceLastBreak >= 8){
+    let sinceBreak = this.hosDriveSinceLastBreak;
+    if (this._currentHosStatus()==='D' && this._hosLastTickMs){
+      sinceBreak += (nowMs - this._hosLastTickMs)/3600000;
+    }
+    if (sinceBreak >= 8){
       return { ok:false, reason:'30-minute break required after 8h driving.' };
     }
     return { ok:true };
   }
 
   _currentHosStatus(){
-    if (this.currentLoadId || this.status === 'On Trip') return 'D';
-    if (this.status === 'SB' || this.status === 'Sleeper') return 'SB';
-    if (this.status === 'On Duty') return 'ON';
+    const s = this.status || 'Idle';
+    if (s === 'SB' || s === 'Sleeper') return 'SB';
+    if (s === 'On Trip' || s === 'Driving') return 'D';
+    if (s === 'On Duty') return 'ON';
+    if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (this.currentLoadId) return 'D';
     return 'OFF';
   }
 
@@ -157,7 +172,7 @@ export class Driver {
     const s = this._currentHosStatus();
     const last = this.hosLog.length ? this.hosLog[this.hosLog.length-1].status : null;
     if (!this.hosLog.length){
-      this.hosLog.push({ tMs: Math.max(0, nowMs - 15*60*1000), status: s });
+      this.hosLog.push({ tMs: Math.max(0, nowMs - 60*1000), status: s });
       this._hosLastStatus = s;
       return;
     }
@@ -171,7 +186,8 @@ export class Driver {
     const evs = [];
     if (!this.hosLog.length){
       const hrs = Math.max(0, (endMs - startMs)/3600000);
-      return [{ start: Math.max(0, hrs - 0.25), end: hrs, status: 'OFF' }];
+      const stepHrs = 1/60;
+      return [{ start: Math.max(0, hrs - stepHrs), end: hrs, status: 'OFF' }];
     }
     let statusAtStart = this.hosLog[0].status;
     for (const ev of this.hosLog){ if (ev.tMs <= startMs) statusAtStart = ev.status; else break; }
