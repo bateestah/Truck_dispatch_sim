@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -977,6 +977,28 @@ export const Game = {
     }
   },
 
+  findNearestStop(lat, lng){
+    let best=null, bestDist=Infinity;
+    const consider=(name, lat2, lng2, type)=>{
+      const d=haversineMiles({lat,lng},{lat:lat2,lng:lng2});
+      if(d<bestDist){ bestDist=d; best={name,lat:lat2,lng:lng2,type}; }
+    };
+    if(Array.isArray(this.truckStops)){
+      for(const ts of this.truckStops){
+        const [slat, slng]=ts.coordinates||[];
+        if(slat!=null && slng!=null) consider(ts.name, slat, slng, 'Truck Stop');
+      }
+    }
+    if(Array.isArray(this.restAreas)){
+      for(const ra of this.restAreas){
+        const lat2=ra.latitude ?? ra.lat;
+        const lng2=ra.longitude ?? ra.lng;
+        if(lat2!=null && lng2!=null) consider(ra.name, lat2, lng2, 'Rest Area');
+      }
+    }
+    return best;
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -985,7 +1007,7 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
-      _pendingMainLeg:d._pendingMainLeg
+      _pendingMainLeg:d._pendingMainLeg,_sleepUntil:d._sleepUntil
     };
   },
   serialize(){
@@ -1059,6 +1081,7 @@ export const Game = {
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
+        drv._sleepUntil=dd._sleepUntil||null;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1274,11 +1297,23 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+      if (d.status === 'Sleeper' && d._sleepUntil && now >= d._sleepUntil) {
+        d.status='On Trip';
+        d._sleepUntil=null;
+      }
       if (d.status === 'On Trip') {
         const ld = this.loads.find(l => l.id === d.currentLoadId);
         if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+        const legal = d.isDrivingLegal(now);
+        if (!legal.ok && legal.reason.includes('11-hour driving limit')) {
+          d._lastStop = this.findNearestStop(d.lat, d.lng);
+          ld.pauseMs = (ld.pauseMs||0) + 10*3600*1000;
+          d.status='Sleeper';
+          d._sleepUntil = now + 10*3600*1000;
+          continue;
+        }
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
             if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
@@ -1318,7 +1353,23 @@ export const Game = {
   ,jump(ms){
     this._simElapsedMs += Math.max(0, ms|0);
     const now = this.getSimNow().getTime();
-    try { for (const d of this.drivers) { d.syncHosLog(now); d.applyHosTick(now); } } catch(e){}
+    try {
+      for (const d of this.drivers) {
+        d.syncHosLog(now); d.applyHosTick(now);
+        if (d.status === 'Sleeper' && d._sleepUntil && now >= d._sleepUntil) {
+          d.status='On Trip'; d._sleepUntil=null;
+        } else if (d.status === 'On Trip') {
+          const legal = d.isDrivingLegal(now);
+          if (!legal.ok && legal.reason.includes('11-hour driving limit')) {
+            d._lastStop=this.findNearestStop(d.lat,d.lng);
+            const ld=this.loads.find(l=>l.id===d.currentLoadId);
+            if(ld) ld.pauseMs=(ld.pauseMs||0)+10*3600*1000;
+            d.status='Sleeper';
+            d._sleepUntil=now+10*3600*1000;
+          }
+        }
+      }
+    } catch(e){}
     try {
       UI.refreshTablesLive();
       const sid = UI._companySelectedId;
