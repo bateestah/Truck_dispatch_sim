@@ -1,6 +1,9 @@
 import { map } from './map.js';
 import { cumulativeMiles, interpolateAlong } from './utils.js';
 
+const HOS_STEP_MS = 60*1000; // 1-minute resolution
+const HOS_STEP_HR = HOS_STEP_MS / 3600000;
+
 /** Driver now supports full profile data. Backward-compatible with old constructor. */
 let _driverIdCounter = 1;
 export class Driver {
@@ -43,6 +46,7 @@ export class Driver {
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.breakUntilMs = null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -69,6 +73,7 @@ export class Driver {
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.breakUntilMs = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -96,10 +101,11 @@ export class Driver {
     this.setPosition(p.lat, p.lng);
   }
   _hosStatus(){
-    if (this.currentLoadId) return 'D';
     const s = this.status || 'Idle';
     if (s === 'SB' || s === 'Sleeper') return 'SB';
     if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (s === 'On Trip' || s === 'Driving') return 'D';
+    if (this.currentLoadId) return 'D';
     return 'OFF';
   }
   _appendHosSegment(status, startHour, endHour){
@@ -112,21 +118,22 @@ export class Driver {
     this.hosSegments.push({start, end, status});
   }
   applyHosTick(nowMs){
-    const stepMs = 15*60*1000;
+    const stepMs = HOS_STEP_MS;
+    const stepHr = HOS_STEP_HR;
     if (!this._hosLastTickMs){ this._hosLastTickMs = nowMs - stepMs; }
     for (let t=this._hosLastTickMs+stepMs; t<=nowMs; t+=stepMs){
       const st = this._hosStatus();
       const dt = new Date(t);
       const hr = dt.getHours() + dt.getMinutes()/60;
-      this._appendHosSegment(st, hr-0.25, hr);
+      this._appendHosSegment(st, hr-stepHr, hr);
       if (st==='OFF' || st==='SB'){
-        this.hosOffStreak += 0.25;
-        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - 0.25);
+        this.hosOffStreak += stepHr;
+        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - stepHr);
         if (this.hosOffStreak >= 10){ this.hosDutyStartMs=null; this.hosDriveSinceReset=0; }
       } else {
         this.hosOffStreak = 0;
         if (!this.hosDutyStartMs) this.hosDutyStartMs = t;
-        if (st==='D'){ this.hosDriveSinceReset += 0.25; this.hosDriveSinceLastBreak += 0.25; }
+        if (st==='D'){ this.hosDriveSinceReset += stepHr; this.hosDriveSinceLastBreak += stepHr; }
       }
       this._hosLastTickMs = t;
     }
@@ -147,9 +154,12 @@ export class Driver {
   }
 
   _currentHosStatus(){
-    if (this.currentLoadId || this.status === 'On Trip') return 'D';
-    if (this.status === 'SB' || this.status === 'Sleeper') return 'SB';
-    if (this.status === 'On Duty') return 'ON';
+    const s = this.status || 'Idle';
+    if (s === 'SB' || s === 'Sleeper') return 'SB';
+    if (s === 'On Trip' || s === 'Driving') return 'D';
+    if (s === 'On Duty') return 'ON';
+    if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (this.currentLoadId) return 'D';
     return 'OFF';
   }
 
@@ -157,7 +167,7 @@ export class Driver {
     const s = this._currentHosStatus();
     const last = this.hosLog.length ? this.hosLog[this.hosLog.length-1].status : null;
     if (!this.hosLog.length){
-      this.hosLog.push({ tMs: Math.max(0, nowMs - 15*60*1000), status: s });
+      this.hosLog.push({ tMs: Math.max(0, nowMs - HOS_STEP_MS), status: s });
       this._hosLastStatus = s;
       return;
     }
@@ -171,7 +181,7 @@ export class Driver {
     const evs = [];
     if (!this.hosLog.length){
       const hrs = Math.max(0, (endMs - startMs)/3600000);
-      return [{ start: Math.max(0, hrs - 0.25), end: hrs, status: 'OFF' }];
+      return [{ start: Math.max(0, hrs - HOS_STEP_HR), end: hrs, status: 'OFF' }];
     }
     let statusAtStart = this.hosLog[0].status;
     for (const ev of this.hosLog){ if (ev.tMs <= startMs) statusAtStart = ev.status; else break; }
