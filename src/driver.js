@@ -96,8 +96,8 @@ export class Driver {
     this.setPosition(p.lat, p.lng);
   }
   _hosStatus(){
-    if (this.currentLoadId) return 'D';
     const s = this.status || 'Idle';
+    if (s === 'On Trip') return 'D';
     if (s === 'SB' || s === 'Sleeper') return 'SB';
     if (s === 'OFF' || s === 'Off Duty') return 'OFF';
     return 'OFF';
@@ -147,7 +147,7 @@ export class Driver {
   }
 
   _currentHosStatus(){
-    if (this.currentLoadId || this.status === 'On Trip') return 'D';
+    if (this.status === 'On Trip') return 'D';
     if (this.status === 'SB' || this.status === 'Sleeper') return 'SB';
     if (this.status === 'On Duty') return 'ON';
     return 'OFF';

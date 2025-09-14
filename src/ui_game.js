@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -433,7 +433,7 @@ export const UI = {
     try{
       const now = Game.getSimNow();
       const hr = now.getHours() + now.getMinutes()/60;
-      const base = (d && d.currentLoadId) ? 'D' : ((d && d.status==='SB') ? 'SB' : 'OFF');
+      const base = (d && d.status==='On Trip') ? 'D' : ((d && d.status==='SB') ? 'SB' : 'OFF');
       const start = Math.max(0, hr-1);
       return [{start:0, end:start, status:'SB'}, {start, end:hr, status:base}];
     }catch(e){ return []; }
@@ -977,6 +977,29 @@ export const Game = {
     }
   },
 
+  _nearestStop(lat,lng){
+    let best=null;
+    const consider=(la,lo,name)=>{
+      const dist=haversineMiles({lat,lng},{lat:la,lng:lo});
+      if(!best||dist<best.dist) best={lat:la,lng:lo,name,dist};
+    };
+    if(Array.isArray(this.truckStops)){
+      for(const ts of this.truckStops){ const [la,lo]=ts.coordinates||[]; if(la!=null&&lo!=null) consider(la,lo,ts.name); }
+    }
+    if(Array.isArray(this.restAreas)){
+      for(const ra of this.restAreas){ const la=ra.latitude??ra.lat; const lo=ra.longitude??ra.lng; if(la!=null&&lo!=null) consider(la,lo,ra.name); }
+    }
+    return best;
+  },
+
+  _forceRest(d,now){
+    const stop=this._nearestStop(d.lat,d.lng);
+    if(stop){ d.setPosition(stop.lat,stop.lng); }
+    d.status='SB';
+    const ld=this.loads.find(l=>l.id===d.currentLoadId);
+    if(ld){ ld.pauseMs=ld.pauseMs||0; ld._restStartMs=now; }
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -1274,11 +1297,13 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
       if (d.status === 'On Trip') {
         const ld = this.loads.find(l => l.id === d.currentLoadId);
         if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+        const legal = d.isDrivingLegal(now);
+        if(!legal.ok){ this._forceRest(d, now); continue; }
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
             if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
@@ -1303,6 +1328,12 @@ export const Game = {
           }
         } else {
           d.tick(now, ld);
+        }
+      } else if(d.status==='SB' && d.currentLoadId){
+        const ld = this.loads.find(l=>l.id===d.currentLoadId);
+        if(ld){
+          ld.pauseMs = (ld.pauseMs||0) + ((ld._restStartMs)?(now - ld._restStartMs):0);
+          ld._restStartMs = now;
         }
       }
     }
