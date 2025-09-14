@@ -413,3 +413,29 @@ bottom: 84px; z-index: 1200;}
 #pauseMenu .btn {
   width: 100%;
 }
+
+/* Announcement banners */
+.announce-container{
+  position:fixed;
+  top:12px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  z-index:1000;
+}
+
+.announce-banner{
+  background:#1b2832;
+  border:1px solid #2d3943;
+  color:#e9eef1;
+  padding:10px 14px;
+  border-radius:8px;
+  opacity:0;
+  transition:opacity .4s;
+}
+
+.announce-banner.show{
+  opacity:1;
+}
