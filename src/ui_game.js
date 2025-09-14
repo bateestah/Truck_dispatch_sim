@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA } from './utils.js';
+import { fmtETA, haversineMiles } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -977,6 +977,56 @@ export const Game = {
     }
   },
 
+  findNearestStop(lat, lng){
+    const pt = {lat, lng};
+    let best=null, bestDist=Infinity;
+    for(const ts of this.truckStops){
+      const [slat, slng] = ts.coordinates || [];
+      if(slat==null || slng==null) continue;
+      const d = haversineMiles(pt, {lat:slat, lng:slng});
+      if(d < bestDist){ bestDist = d; best = {name:ts.name, lat:slat, lng:slng}; }
+    }
+    for(const ra of this.restAreas){
+      const rlat = ra.latitude ?? ra.lat;
+      const rlng = ra.longitude ?? ra.lng;
+      if(rlat==null || rlng==null) continue;
+      const d = haversineMiles(pt, {lat:rlat, lng:rlng});
+      if(d < bestDist){ bestDist = d; best = {name:ra.name, lat:rlat, lng:rlng}; }
+    }
+    return best;
+  },
+
+  _startHosBreak(d, ld, now){
+    const stop = this.findNearestStop(d.lat, d.lng);
+    if(!stop) return;
+    const mph = ld.miles && ld.etaMs ? ld.miles / (ld.etaMs/3600000) : 58;
+    Router.route({name:stop.name, lat:stop.lat, lng:stop.lng}, {name:ld.destName, lat:ld.end.lat, lng:ld.end.lng})
+      .then(route=>{
+        const miles = Math.round(route.distanceMiles);
+        const etaMs = (miles / mph) * 3600*1000;
+        d._postBreak = { path: route.path, miles, etaMs };
+      })
+      .catch(()=>{ d._postBreak = null; });
+    d.setPosition(stop.lat, stop.lng);
+    d.status = 'SB';
+    d.hosBreakUntilMs = now + 10*3600*1000;
+  },
+
+  _resumeFromBreak(d, now){
+    const ld = this.loads.find(l => l.id === d.currentLoadId);
+    if(ld && d._postBreak){
+      d.startTripPolyline(d._postBreak.path, ld.id);
+      ld.start = d._postBreak.path[0];
+      ld.end   = d._postBreak.path[d._postBreak.path.length-1];
+      ld.miles = d._postBreak.miles;
+      ld.etaMs = d._postBreak.etaMs;
+      ld.startTime = now;
+      d._postBreak = null;
+    }
+    d.status = ld ? 'On Trip' : 'Idle';
+    d.hosBreakUntilMs = null;
+  },
+
   _serializeDriver(d){
     return {
       firstName:d.firstName,lastName:d.lastName,age:d.age,gender:d.gender,experience:d.experience,
@@ -985,6 +1035,7 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
+      hosBreakUntilMs:d.hosBreakUntilMs,_postBreak:d._postBreak,
       _pendingMainLeg:d._pendingMainLeg
     };
   },
@@ -1059,6 +1110,8 @@ export const Game = {
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
+        drv.hosBreakUntilMs=dd.hosBreakUntilMs||null;
+        drv._postBreak=dd._postBreak||null;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1274,10 +1327,14 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
       if (d.status === 'On Trip') {
         const ld = this.loads.find(l => l.id === d.currentLoadId);
         if (!ld) continue;
+        if (d.hosDriveSinceReset >= 10.75){
+          this._startHosBreak(d, ld, now);
+          continue;
+        }
         const t = (now - ld.startTime) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
@@ -1304,6 +1361,8 @@ export const Game = {
         } else {
           d.tick(now, ld);
         }
+      } else if (d.status === 'SB' && d.hosBreakUntilMs && now >= d.hosBreakUntilMs){
+        this._resumeFromBreak(d, now);
       }
     }
     UI.refreshTablesLive();
