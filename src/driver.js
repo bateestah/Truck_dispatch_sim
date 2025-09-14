@@ -31,6 +31,7 @@ export class Driver {
       this.routeLine = null;
       this.path = null; this.cumMiles = null;
       this.visible = true;
+      this.sleepUntil = null;
       // Simple HOS: last 7 days of on-duty hours (0-11)
       this.hos = Array.isArray(d.hos) ? d.hos.slice(0,7) : Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosSegments = [];
@@ -66,6 +67,7 @@ export class Driver {
       this.routeLine = null;
       this.path = null; this.cumMiles = null;
       this.visible = true;
+      this.sleepUntil = null;
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
@@ -79,6 +81,7 @@ export class Driver {
   startTripPolyline(path, loadId){
     this.status='On Trip';
     this.currentLoadId = loadId;
+    this.sleepUntil = null;
     this.path = path;
     this.cumMiles = cumulativeMiles(path);
     if (this.routeLine){ try{ map.removeLayer(this.routeLine);}catch(e){} }
@@ -96,10 +99,11 @@ export class Driver {
     this.setPosition(p.lat, p.lng);
   }
   _hosStatus(){
-    if (this.currentLoadId) return 'D';
     const s = this.status || 'Idle';
     if (s === 'SB' || s === 'Sleeper') return 'SB';
     if (s === 'OFF' || s === 'Off Duty') return 'OFF';
+    if (this.currentLoadId) return 'D';
+    if (s === 'On Duty') return 'ON';
     return 'OFF';
   }
   _appendHosSegment(status, startHour, endHour){
@@ -147,9 +151,10 @@ export class Driver {
   }
 
   _currentHosStatus(){
-    if (this.currentLoadId || this.status === 'On Trip') return 'D';
-    if (this.status === 'SB' || this.status === 'Sleeper') return 'SB';
-    if (this.status === 'On Duty') return 'ON';
+    const s = this.status || '';
+    if (s === 'SB' || s === 'Sleeper') return 'SB';
+    if (s === 'On Duty') return 'ON';
+    if (this.currentLoadId || s === 'On Trip') return 'D';
     return 'OFF';
   }
 
@@ -195,7 +200,7 @@ export class Driver {
   }
 
   finishTrip(end){
-    this.setPosition(end.lat,end.lng); this.status='Idle'; this.currentLoadId=null;
+    this.setPosition(end.lat,end.lng); this.status='Idle'; this.currentLoadId=null; this.sleepUntil=null;
     this.path = null; this.cumMiles = null;
     // Simulate HOS accumulation for "today"
     const todayIdx = 6; // last element is today in our 7-day window
