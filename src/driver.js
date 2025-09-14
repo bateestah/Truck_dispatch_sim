@@ -42,6 +42,7 @@ export class Driver {
       this._hosPausedStartMs = null;
       this._hosLastTickMs = null;
       this.hosLog = [];
+      this._sleepUntil = null;
       this._hosLastStatus = null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
@@ -68,6 +69,7 @@ export class Driver {
       this.visible = true;
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
+      this._sleepUntil = null;
       this._hosLastStatus = null;
     }
   }
