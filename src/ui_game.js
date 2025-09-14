@@ -1,7 +1,7 @@
 import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
-import { fmtETA, haversineMiles } from './utils.js';
+import { fmtETA, haversineMiles, loadProgress } from './utils.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -1313,7 +1313,7 @@ export const Game = {
       const legal=d.isDrivingLegal(now);
       if(!legal.ok){ this._beginSleeperBreak(d, ld, now); return; }
       if(!ld) return;
-      const t=(now - ld.startTime) / ld.etaMs;
+      const t = loadProgress(ld, now);
       if(t >= 1){
         d.finishTrip(ld.end);
         if(ld.kind==='Deadhead' && d._pendingMainLeg){

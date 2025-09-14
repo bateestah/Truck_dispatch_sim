@@ -23,3 +23,8 @@ export function fmtETA(ms){
   const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
   return `${h}h ${m}m`;
 }
+
+export function loadProgress(load, now){
+  const paused = load.pauseMs || 0;
+  return (now - load.startTime - paused) / load.etaMs;
+}
