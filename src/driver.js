@@ -43,6 +43,7 @@ export class Driver {
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.breakUntilMs = null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -69,6 +70,7 @@ export class Driver {
       this.hos = Array.from({length:7}, ()=>Math.floor(4 + Math.random()*7));
       this.hosLog = [];
       this._hosLastStatus = null;
+      this.breakUntilMs = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
