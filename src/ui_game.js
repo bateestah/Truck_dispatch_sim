@@ -2,6 +2,7 @@ import { Colors } from './colors.js';
 import { Driver } from './driver.js';
 import { Router } from './router.js';
 import { fmtETA } from './utils.js';
+import { enforceHosBreak } from './hos.js';
 import { cityByName, CityGroups } from './data/cities.js';
 import { DriverProfiles } from './data/driver_profiles.js';
 import { drawnItems, drawControl, clearNonOverrideDrawings, currentDrawnPolylineLatLngs, showCompletedRoutes, completedRoutesGroup, showOverridePolyline, refreshCompletedRoutes, setShowCompletedRoutes } from './drawing.js';
@@ -985,7 +986,7 @@ export const Game = {
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
-      _pendingMainLeg:d._pendingMainLeg
+      _pendingMainLeg:d._pendingMainLeg,breakEndMs:d.breakEndMs
     };
   },
   serialize(){
@@ -1059,6 +1060,7 @@ export const Game = {
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
+        drv.breakEndMs=dd.breakEndMs||null;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1274,11 +1276,21 @@ export const Game = {
 
   update(){ const realNow=performance.now(); if(!this.paused) this._simElapsedMs += (realNow - this._realLast)*this.speed; this._realLast = realNow; const now=this.getSimNow().getTime();
     for (const d of this.drivers) {
-      try{ d.syncHosLog(now); }catch(e){}
-      if (d.status === 'On Trip') {
-        const ld = this.loads.find(l => l.id === d.currentLoadId);
-        if (!ld) continue;
-        const t = (now - ld.startTime) / ld.etaMs;
+      try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
+      const ld = this.loads.find(l => l.id === d.currentLoadId);
+      if (d.status === 'SB') {
+        if (d.breakEndMs && now >= d.breakEndMs) {
+          d.status = ld ? 'On Trip' : 'Idle';
+          if (ld && ld.pauseStart) { ld.pauseMs = (ld.pauseMs||0) + (now - ld.pauseStart); ld.pauseStart=null; }
+          d.breakEndMs = null;
+        }
+        continue;
+      }
+      if (enforceHosBreak(d, now, this.restAreas, this.truckStops, ld)) {
+        continue;
+      }
+      if (d.status === 'On Trip' && ld) {
+        const t = (now - ld.startTime - (ld.pauseMs||0)) / ld.etaMs;
         if (t >= 1) {
           d.finishTrip(ld.end);
             if (ld.kind === 'Deadhead' && d._pendingMainLeg) {
