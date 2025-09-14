@@ -622,7 +622,16 @@ export const UI = {
 
     // Data
     const offsetMs = (UI._hosDayOffset || 0) * 24 * 3600 * 1000;
-    let segs = (d.getHosSegments24 ? d.getHosSegments24(Game.getSimNow().getTime() - offsetMs) : []);
+    const now = Game.getSimNow();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startMs = todayStart - offsetMs;
+    const endMs = UI._hosDayOffset ? (startMs + 24 * 3600 * 1000) : now.getTime();
+    let segs = [];
+    if (d.getHosSegmentsRange) {
+      segs = d.getHosSegmentsRange(startMs, endMs);
+    } else if (d.getHosSegments24) {
+      segs = d.getHosSegments24(endMs);
+    }
     if (!segs.length) segs = UI._getHosSegments(d);
     if (!segs.length){
       ctx.fillStyle = '#888';
