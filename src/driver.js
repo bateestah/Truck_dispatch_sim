@@ -167,18 +167,17 @@ export class Driver {
     }
   }
 
-  getHosSegments24(nowMs){
-    const DAY_MS = 24*3600*1000;
-    const startMs = Math.max(0, nowMs - DAY_MS);
+  getHosSegmentsRange(startMs, endMs){
     const evs = [];
     if (!this.hosLog.length){
-      return [{ start: 24-0.25, end: 24, status: 'OFF' }];
+      const hrs = Math.max(0, (endMs - startMs)/3600000);
+      return [{ start: Math.max(0, hrs - 0.25), end: hrs, status: 'OFF' }];
     }
     let statusAtStart = this.hosLog[0].status;
     for (const ev of this.hosLog){ if (ev.tMs <= startMs) statusAtStart = ev.status; else break; }
     evs.push({ tMs: startMs, status: statusAtStart });
-    for (const ev of this.hosLog){ if (ev.tMs > startMs && ev.tMs < nowMs) evs.push({ tMs: ev.tMs, status: ev.status }); }
-    evs.push({ tMs: nowMs, status: evs.length ? evs[evs.length-1].status : statusAtStart });
+    for (const ev of this.hosLog){ if (ev.tMs > startMs && ev.tMs < endMs) evs.push({ tMs: ev.tMs, status: ev.status }); }
+    evs.push({ tMs: endMs, status: evs.length ? evs[evs.length-1].status : statusAtStart });
     const segs = [];
     for (let i=0;i<evs.length-1;i++){
       const a = evs[i], b = evs[i+1];
@@ -187,6 +186,12 @@ export class Driver {
       if (endH > startH) segs.push({ start: startH, end: endH, status: a.status });
     }
     return segs;
+  }
+
+  getHosSegments24(nowMs){
+    const DAY_MS = 24*3600*1000;
+    const startMs = Math.max(0, nowMs - DAY_MS);
+    return this.getHosSegmentsRange(startMs, nowMs);
   }
 
   finishTrip(end){
