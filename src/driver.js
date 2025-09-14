@@ -40,6 +40,7 @@ export class Driver {
       this.hosDay = null;
       this.hosDutyStartMs = null;
       this.hosDriveSinceReset = 0;
+      this.hosCycleDrive = d.hosCycleDrive || 0;
       this.hosDriveSinceLastBreak = 0;
       this.hosOffStreak = 0;
       this._shortBreakAccum = 0;
@@ -77,6 +78,7 @@ export class Driver {
       this.hosDay = null;
       this.hosDutyStartMs = null;
       this.hosDriveSinceReset = 0;
+      this.hosCycleDrive = 0;
       this.hosDriveSinceLastBreak = 0;
       this.hosOffStreak = 0;
       this._shortBreakAccum = 0;
@@ -143,11 +145,12 @@ export class Driver {
         this._shortBreakAccum += stepHr;
         if (this._shortBreakAccum >= 0.5){ this.hosDriveSinceLastBreak = 0; }
         if (this.hosOffStreak >= 10){ this.hosDutyStartMs=null; this.hosDriveSinceReset=0; }
+        if (this.hosOffStreak >= 34){ this.hosCycleDrive = 0; }
       } else {
         this.hosOffStreak = 0;
         this._shortBreakAccum = 0;
         if (!this.hosDutyStartMs) this.hosDutyStartMs = t;
-        if (st==='D'){ this.hosDriveSinceReset += stepHr; this.hosDriveSinceLastBreak += stepHr; }
+        if (st==='D'){ this.hosDriveSinceReset += stepHr; this.hosDriveSinceLastBreak += stepHr; this.hosCycleDrive += stepHr; }
       }
       this._hosLastTickMs = t;
     }
@@ -160,6 +163,9 @@ export class Driver {
     }
     if (dutyStart && onDutyHrs >= 14){
       return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.' };
+    }
+    if (this.hosCycleDrive >= 70){
+      return { ok:false, reason:'70-hour weekly limit reached. Take a 34-hour break.' };
     }
     if (this.hosDriveSinceLastBreak >= 8){
       return { ok:false, reason:'30-minute break required after 8h driving.' };
