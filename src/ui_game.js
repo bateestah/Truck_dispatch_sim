@@ -983,7 +983,7 @@ export const Game = {
       color:d.color,lat:d.lat,lng:d.lng,cityName:d.cityName,status:d.status,currentLoadId:d.currentLoadId,
       truckMake:d.truckMake,truckModel:d.truckModel,truckNumber:d.truckNumber,
       path:d.path,cumMiles:d.cumMiles,hos:d.hos,hosSegments:d.hosSegments,hosDay:d.hosDay,
-      hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
+      hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,hosCycleDrive:d.hosCycleDrive,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
       _pendingMainLeg:d._pendingMainLeg,
       breakUntilMs:d.breakUntilMs,
@@ -1057,6 +1057,7 @@ export const Game = {
         drv.hosDay=dd.hosDay||null;
         drv.hosDutyStartMs=dd.hosDutyStartMs||null;
         drv.hosDriveSinceReset=dd.hosDriveSinceReset||0;
+        drv.hosCycleDrive=dd.hosCycleDrive||0;
         drv.hosDriveSinceLastBreak=dd.hosDriveSinceLastBreak||0;
         drv.hosOffStreak=dd.hosOffStreak||0;
         drv.hosLog=dd.hosLog||[];
@@ -1307,6 +1308,15 @@ export const Game = {
     UI.refreshDispatch();
   },
 
+  _beginCycleBreak(d, ld, now){
+    const stop=this.nearestStop(d.lat, d.lng);
+    if(stop){ d.setPosition(stop.lat, stop.lng); }
+    d.status='SB';
+    d.breakUntilMs = now + 34*3600*1000;
+    if(ld){ ld.pauseMs=(ld.pauseMs||0) + 34*3600*1000; ld.status='Paused'; }
+    UI.refreshDispatch();
+  },
+
   _updateDriver(d, now){
     try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
     const ld=this.loads.find(l=>l.id===d.currentLoadId);
@@ -1328,6 +1338,7 @@ export const Game = {
       const legal=d.isDrivingLegal(now);
       if(!legal.ok){
         if(legal.reason.startsWith('30-minute break')){ this._beginShortBreak(d, ld, now); }
+        else if(legal.reason.startsWith('70-hour')){ this._beginCycleBreak(d, ld, now); }
         else { this._beginSleeperBreak(d, ld, now); }
         return;
       }
