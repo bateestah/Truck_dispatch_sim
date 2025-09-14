@@ -42,11 +42,13 @@ export class Driver {
       this.hosDriveSinceReset = 0;
       this.hosDriveSinceLastBreak = 0;
       this.hosOffStreak = 0;
+      this._shortBreakAccum = 0;
       this._hosPausedStartMs = null;
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
       this.breakUntilMs = null;
+      this.nextBreakAtMs = null;
     } else {
       // Backward compatibility (old: name, lat, lng, color)
       const name = String(arg1 || '').trim() || 'Driver';
@@ -77,11 +79,13 @@ export class Driver {
       this.hosDriveSinceReset = 0;
       this.hosDriveSinceLastBreak = 0;
       this.hosOffStreak = 0;
+      this._shortBreakAccum = 0;
       this._hosPausedStartMs = null;
       this._hosLastTickMs = null;
       this.hosLog = [];
       this._hosLastStatus = null;
       this.breakUntilMs = null;
+      this.nextBreakAtMs = null;
     }
   }
   get name(){ return (this.firstName + ' ' + this.lastName).trim(); }
@@ -136,10 +140,12 @@ export class Driver {
       this._appendHosSegment(st, hr-stepHr, hr);
       if (st==='OFF' || st==='SB'){
         this.hosOffStreak += stepHr;
-        this.hosDriveSinceLastBreak = Math.max(0, this.hosDriveSinceLastBreak - stepHr);
+        this._shortBreakAccum += stepHr;
+        if (this._shortBreakAccum >= 0.5){ this.hosDriveSinceLastBreak = 0; }
         if (this.hosOffStreak >= 10){ this.hosDutyStartMs=null; this.hosDriveSinceReset=0; }
       } else {
         this.hosOffStreak = 0;
+        this._shortBreakAccum = 0;
         if (!this.hosDutyStartMs) this.hosDutyStartMs = t;
         if (st==='D'){ this.hosDriveSinceReset += stepHr; this.hosDriveSinceLastBreak += stepHr; }
       }
@@ -155,8 +161,8 @@ export class Driver {
     if (dutyStart && onDutyHrs >= 14){
       return { ok:false, reason:'14-hour duty window expired. Take a 10-hour break.' };
     }
-    if (this.hosDriveSinceLastBreak >= 10){
-      return { ok:false, reason:'30-minute break required after 10h driving.' };
+    if (this.hosDriveSinceLastBreak >= 8){
+      return { ok:false, reason:'30-minute break required after 8h driving.' };
     }
     return { ok:true };
   }
