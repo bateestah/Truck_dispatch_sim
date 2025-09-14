@@ -986,7 +986,9 @@ export const Game = {
       hosDutyStartMs:d.hosDutyStartMs,hosDriveSinceReset:d.hosDriveSinceReset,
       hosDriveSinceLastBreak:d.hosDriveSinceLastBreak,hosOffStreak:d.hosOffStreak,hosLog:d.hosLog,
       _pendingMainLeg:d._pendingMainLeg,
-      breakUntilMs:d.breakUntilMs
+      breakUntilMs:d.breakUntilMs,
+      shortBreakHr:d.shortBreakHr,
+      shortBreakTaken:d.shortBreakTaken
     };
   },
   serialize(){
@@ -1061,6 +1063,8 @@ export const Game = {
         drv.hosLog=dd.hosLog||[];
         drv._pendingMainLeg=dd._pendingMainLeg||null;
         drv.breakUntilMs=dd.breakUntilMs||null;
+        drv.shortBreakHr=dd.shortBreakHr||null;
+        drv.shortBreakTaken=dd.shortBreakTaken||false;
         if(drv.status==='On Trip' && Array.isArray(dd.path)){
           drv.startTripPolyline(dd.path, dd.currentLoadId);
           drv.cumMiles=dd.cumMiles;
@@ -1287,11 +1291,22 @@ export const Game = {
     return best;
   },
 
+  _beginShortBreak(d, ld, now){
+    const stop=this.nearestStop(d.lat, d.lng);
+    if(stop){ d.setPosition(stop.lat, stop.lng); }
+    d.status='OFF';
+    d.breakUntilMs=now + 30*60*1000;
+    if(ld){ ld.pauseMs=(ld.pauseMs||0) + 30*60*1000; ld.status='Paused'; }
+    UI.refreshDispatch();
+  },
+
   _beginSleeperBreak(d, ld, now){
     const stop=this.nearestStop(d.lat, d.lng);
     if(stop){ d.setPosition(stop.lat, stop.lng); }
     d.status='SB';
     d.breakUntilMs=now + 10*3600*1000;
+    d.shortBreakHr=null;
+    d.shortBreakTaken=false;
     if(ld){ ld.pauseMs=(ld.pauseMs||0) + 10*3600*1000; ld.status='Paused'; }
     UI.refreshDispatch();
   },
@@ -1299,8 +1314,9 @@ export const Game = {
   _updateDriver(d, now){
     try{ d.syncHosLog(now); d.applyHosTick(now); }catch(e){}
     const ld=this.loads.find(l=>l.id===d.currentLoadId);
-    if(d.status==='SB' && d.breakUntilMs){
+    if((d.status==='SB' || d.status==='OFF') && d.breakUntilMs){
       if(now>=d.breakUntilMs){
+        if(d.status==='OFF') d.hosDriveSinceLastBreak = 0;
         d.status='On Trip';
         d.breakUntilMs=null;
         if(ld){ ld.status='En Route'; }
@@ -1310,9 +1326,12 @@ export const Game = {
       }
     }
     if(d.status==='On Trip'){
+      if(!ld) return;
+      if(d.shortBreakHr==null){ d.shortBreakHr=5+Math.random()*3; d.shortBreakTaken=false; }
+      const driveHrs=(now - ld.startTime - (ld.pauseMs||0))/3600000;
+      if(!d.shortBreakTaken && driveHrs>=d.shortBreakHr){ this._beginShortBreak(d, ld, now); d.shortBreakTaken=true; return; }
       const legal=d.isDrivingLegal(now);
       if(!legal.ok){ this._beginSleeperBreak(d, ld, now); return; }
-      if(!ld) return;
       const t = loadProgress(ld, now);
       if(t >= 1){
         d.finishTrip(ld.end);
