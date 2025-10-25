@@ -182,6 +182,18 @@ select, input[type="number"], input[type="text"]{width:100%; padding:8px; border
 }
 
 
+/* === Market panel wider layout === */
+#panelMarket {
+  width: 1000px !important;     /* longer horizontally */
+  max-width: 98vw !important;   /* responsive for small screens */
+  max-height: 60vh !important;  /* limit vertical size */
+}
+
+#panelMarket .grid.cols-2 {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+
 /* ===== Time HUD (clock + mini calendar + time controls) ===== */
 .time-hud{
   position: absolute;
